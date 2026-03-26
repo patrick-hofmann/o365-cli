@@ -38,30 +38,39 @@ The tool uses the **OAuth2 Device Authorization Flow** with a Multi-Tenant Publi
 
 ## Installation
 
-### Pre-compiled Binaries
+### Homebrew (macOS / Linux)
 
-Download the appropriate binary from [Releases](https://github.com/patrick-hofmann/o365-cli/releases):
+```bash
+brew install patrick-hofmann/tap/o365-cli
+```
 
-| Platform | File |
-|----------|------|
-| Windows | `o365-cli-windows-amd64.exe` |
-| macOS Intel | `o365-cli-darwin-amd64` |
-| macOS Apple Silicon | `o365-cli-darwin-arm64` |
-| Linux | `o365-cli-linux-amd64` |
+### Go Install
+
+```bash
+go install github.com/patrick-hofmann/o365-cli/cmd/o365-cli@latest
+```
+
+### Download Binary
+
+```bash
+# macOS (Apple Silicon)
+curl -L https://github.com/patrick-hofmann/o365-cli/releases/latest/download/o365-cli-darwin-arm64 -o /usr/local/bin/o365-cli && chmod +x /usr/local/bin/o365-cli
+
+# macOS (Intel)
+curl -L https://github.com/patrick-hofmann/o365-cli/releases/latest/download/o365-cli-darwin-amd64 -o /usr/local/bin/o365-cli && chmod +x /usr/local/bin/o365-cli
+
+# Linux (x64)
+curl -L https://github.com/patrick-hofmann/o365-cli/releases/latest/download/o365-cli-linux-amd64 -o /usr/local/bin/o365-cli && chmod +x /usr/local/bin/o365-cli
+
+# Windows — download o365-cli-windows-amd64.exe from GitHub Releases
+```
 
 ### Build from Source
 
 ```bash
-# Go 1.21+ required
 git clone https://github.com/patrick-hofmann/o365-cli.git
 cd o365-cli
-go build -o o365-cli ./cmd/o365-cli
-```
-
-### Cross-Compilation
-
-```bash
-make build-all
+make build && sudo cp o365-cli /usr/local/bin/
 ```
 
 ## Configuration
