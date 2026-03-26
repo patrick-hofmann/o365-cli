@@ -1,0 +1,93 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build all platforms
+        run: make build-all
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG_NAME" \
+            dist/* \
+            --title "$TAG_NAME" \
+            --generate-notes
+
+      - name: Update Homebrew formula
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          VERSION_NUM="${TAG_NAME#v}"
+
+          SHA_DARWIN_ARM64=$(shasum -a 256 dist/o365-cli-darwin-arm64 | awk '{print $1}')
+          SHA_DARWIN_AMD64=$(shasum -a 256 dist/o365-cli-darwin-amd64 | awk '{print $1}')
+          SHA_LINUX_AMD64=$(shasum -a 256 dist/o365-cli-linux-amd64 | awk '{print $1}')
+          SHA_LINUX_ARM64=$(shasum -a 256 dist/o365-cli-linux-arm64 | awk '{print $1}')
+
+          cat > /tmp/o365-cli.rb <<FORMULA
+          class O365Cli < Formula
+            desc "CLI tool for Microsoft 365 mail and calendar access via OAuth2"
+            homepage "https://github.com/patrick-hofmann/o365-cli"
+            version "${VERSION_NUM}"
+            license "MIT"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/patrick-hofmann/o365-cli/releases/download/${TAG_NAME}/o365-cli-darwin-arm64"
+                sha256 "${SHA_DARWIN_ARM64}"
+              else
+                url "https://github.com/patrick-hofmann/o365-cli/releases/download/${TAG_NAME}/o365-cli-darwin-amd64"
+                sha256 "${SHA_DARWIN_AMD64}"
+              end
+            end
+
+            on_linux do
+              if Hardware::CPU.arm?
+                url "https://github.com/patrick-hofmann/o365-cli/releases/download/${TAG_NAME}/o365-cli-linux-arm64"
+                sha256 "${SHA_LINUX_ARM64}"
+              else
+                url "https://github.com/patrick-hofmann/o365-cli/releases/download/${TAG_NAME}/o365-cli-linux-amd64"
+                sha256 "${SHA_LINUX_AMD64}"
+              end
+            end
+
+            def install
+              binary = Dir["o365-cli-*"].first || "o365-cli"
+              bin.install binary => "o365-cli"
+            end
+
+            test do
+              assert_match "o365-cli v${VERSION_NUM}", shell_output("#{bin}/o365-cli version")
+            end
+          end
+          FORMULA
+
+          sed -i 's/^          //' /tmp/o365-cli.rb
+
+          git clone https://x-access-token:${TAP_TOKEN}@github.com/patrick-hofmann/homebrew-tap.git /tmp/homebrew-tap
+          cp /tmp/o365-cli.rb /tmp/homebrew-tap/Formula/o365-cli.rb
+          cd /tmp/homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/o365-cli.rb
+          git commit -m "feat: update o365-cli to ${TAG_NAME}"
+          git push
