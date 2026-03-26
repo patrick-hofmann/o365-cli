@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/spf13/cobra"
 	"github.com/yourname/o365-cli/internal/auth"
@@ -138,6 +139,50 @@ func getAccessToken(ctx context.Context) (string, error) {
 	}
 
 	return accessToken, nil
+}
+
+// AccountToken holds an access token for a specific account.
+type AccountToken struct {
+	Email       string
+	AccessToken string
+	Error       error
+}
+
+// getAllAccessTokens retrieves access tokens for all logged-in accounts in parallel.
+// Accounts that fail token retrieval are included with their error (non-fatal).
+func getAllAccessTokens(ctx context.Context) ([]AccountToken, error) {
+	oauthClient, err := auth.NewOAuthClient(cfg.ClientID, cfg.CacheDir)
+	if err != nil {
+		return nil, err
+	}
+
+	accounts, err := oauthClient.ListAccounts(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list accounts: %w", err)
+	}
+
+	if len(accounts) == 0 {
+		return nil, fmt.Errorf("no accounts configured. Please run 'auth login'")
+	}
+
+	results := make([]AccountToken, len(accounts))
+	var wg sync.WaitGroup
+
+	for i, email := range accounts {
+		wg.Add(1)
+		go func(idx int, email string) {
+			defer wg.Done()
+			token, err := oauthClient.GetAccessToken(ctx, email)
+			results[idx] = AccountToken{
+				Email:       email,
+				AccessToken: token,
+				Error:       err,
+			}
+		}(i, email)
+	}
+
+	wg.Wait()
+	return results, nil
 }
 
 // versionCmd shows the version

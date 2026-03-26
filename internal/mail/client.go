@@ -26,6 +26,7 @@ func NewClient(accessToken string) *Client {
 // Email represents an email message
 type Email struct {
 	ID        string    `json:"id"`
+	Account   string    `json:"account,omitempty"`
 	MessageID string    `json:"message_id"`
 	Subject   string    `json:"subject"`
 	From      string    `json:"from"`

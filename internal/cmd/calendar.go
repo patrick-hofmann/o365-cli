@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -25,6 +27,7 @@ var (
 	calListDays  int
 	calListLimit int
 	calListJSON  bool
+	calListAll   bool
 )
 
 var calendarListCmd = &cobra.Command{
@@ -42,7 +45,10 @@ Examples:
 
 // --- Today ---
 
-var calTodayJSON bool
+var (
+	calTodayJSON bool
+	calTodayAll  bool
+)
 
 var calendarTodayCmd = &cobra.Command{
 	Use:   "today",
@@ -185,9 +191,11 @@ func init() {
 	calendarListCmd.Flags().IntVar(&calListDays, "days", 7, "Number of days to show")
 	calendarListCmd.Flags().IntVar(&calListLimit, "limit", 25, "Maximum number of events")
 	calendarListCmd.Flags().BoolVar(&calListJSON, "json", false, "Output as JSON")
+	calendarListCmd.Flags().BoolVar(&calListAll, "all", false, "Show events from all accounts")
 
 	// today
 	calendarTodayCmd.Flags().BoolVar(&calTodayJSON, "json", false, "Output as JSON")
+	calendarTodayCmd.Flags().BoolVar(&calTodayAll, "all", false, "Show events from all accounts")
 
 	// get
 	calendarGetCmd.Flags().BoolVar(&calGetJSON, "json", false, "Output as JSON")
@@ -242,13 +250,24 @@ func getCalendarClient(ctx context.Context) (*calendar.Client, error) {
 
 func runCalendarList(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
+	now := time.Now()
+	endTime := now.AddDate(0, 0, calListDays)
+
+	if calListAll {
+		events, err := fetchAllAccountEvents(ctx, now, endTime, calListLimit)
+		if err != nil {
+			return err
+		}
+		if calListJSON {
+			return calOutputJSON(events)
+		}
+		return printMultiAccountEventTable(events)
+	}
+
 	client, err := getCalendarClient(ctx)
 	if err != nil {
 		return err
 	}
-
-	now := time.Now()
-	endTime := now.AddDate(0, 0, calListDays)
 
 	events, err := client.ListEvents(now, endTime, calListLimit)
 	if err != nil {
@@ -264,14 +283,42 @@ func runCalendarList(cmd *cobra.Command, args []string) error {
 
 func runCalendarToday(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
+	now := time.Now()
+	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	endOfDay := startOfDay.AddDate(0, 0, 1)
+
+	if calTodayAll {
+		events, err := fetchAllAccountEvents(ctx, startOfDay, endOfDay, 50)
+		if err != nil {
+			return err
+		}
+		if calTodayJSON {
+			return calOutputJSON(events)
+		}
+		if len(events) == 0 {
+			printInfo("No events today across all accounts.")
+			return nil
+		}
+		fmt.Printf("\nEvents for %s (all accounts):\n", now.Format("Monday, 2 January 2006"))
+		fmt.Println(strings.Repeat("─", 110))
+		for _, ev := range events {
+			acct := truncate(ev.Account, 20)
+			if ev.IsAllDay {
+				fmt.Printf("  %-22s All day    %-35s %s\n", acct, truncate(ev.Subject, 35), ev.Location)
+			} else {
+				start := ev.Start.Local().Format("15:04")
+				end := ev.End.Local().Format("15:04")
+				fmt.Printf("  %-22s %s-%s  %-35s %s\n", acct, start, end, truncate(ev.Subject, 35), ev.Location)
+			}
+		}
+		fmt.Printf("\n%d event(s) across all accounts\n", len(events))
+		return nil
+	}
+
 	client, err := getCalendarClient(ctx)
 	if err != nil {
 		return err
 	}
-
-	now := time.Now()
-	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	endOfDay := startOfDay.AddDate(0, 0, 1)
 
 	events, err := client.ListEvents(startOfDay, endOfDay, 50)
 	if err != nil {
@@ -302,6 +349,57 @@ func runCalendarToday(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("\n%d event(s)\n", len(events))
 	return nil
+}
+
+// fetchAllAccountEvents queries all accounts in parallel and returns merged, sorted events.
+func fetchAllAccountEvents(ctx context.Context, startTime, endTime time.Time, limit int) ([]calendar.Event, error) {
+	tokens, err := getAllAccessTokens(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	type result struct {
+		events []calendar.Event
+		email  string
+		err    error
+	}
+
+	results := make([]result, len(tokens))
+	var wg sync.WaitGroup
+
+	for i, at := range tokens {
+		if at.Error != nil {
+			results[i] = result{email: at.Email, err: at.Error}
+			continue
+		}
+		wg.Add(1)
+		go func(idx int, at AccountToken) {
+			defer wg.Done()
+			client := calendar.NewClient(at.AccessToken)
+			events, err := client.ListEvents(startTime, endTime, limit)
+			results[idx] = result{events: events, email: at.Email, err: err}
+		}(i, at)
+	}
+
+	wg.Wait()
+
+	var allEvents []calendar.Event
+	for _, r := range results {
+		if r.err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: %s: %v\n", r.email, r.err)
+			continue
+		}
+		for i := range r.events {
+			r.events[i].Account = r.email
+			allEvents = append(allEvents, r.events[i])
+		}
+	}
+
+	sort.Slice(allEvents, func(i, j int) bool {
+		return allEvents[i].Start.Before(allEvents[j].Start)
+	})
+
+	return allEvents, nil
 }
 
 func runCalendarGet(cmd *cobra.Command, args []string) error {
@@ -541,6 +639,34 @@ func printEventTable(events []calendar.Event) error {
 	}
 
 	fmt.Printf("\n%d event(s)\n", len(events))
+	return nil
+}
+
+func printMultiAccountEventTable(events []calendar.Event) error {
+	if len(events) == 0 {
+		printInfo("No events found across all accounts.")
+		return nil
+	}
+
+	fmt.Printf("\n%-22s %-12s %-13s %-8s %-30s %s\n", "ACCOUNT", "DATE", "TIME", "DURATION", "SUBJECT", "LOCATION")
+	fmt.Println(strings.Repeat("─", 110))
+
+	for _, ev := range events {
+		acct := truncate(ev.Account, 20)
+		date := ev.Start.Local().Format("2006-01-02")
+		var timeStr, durStr string
+		if ev.IsAllDay {
+			timeStr = "all day"
+			durStr = ""
+		} else {
+			timeStr = ev.Start.Local().Format("15:04") + "-" + ev.End.Local().Format("15:04")
+			durStr = formatDuration(ev.End.Sub(ev.Start))
+		}
+
+		fmt.Printf("%-22s %-12s %-13s %-8s %-30s %s\n", acct, date, timeStr, durStr, truncate(ev.Subject, 28), truncate(ev.Location, 20))
+	}
+
+	fmt.Printf("\n%d event(s) across all accounts\n", len(events))
 	return nil
 }
 

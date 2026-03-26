@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -25,6 +27,7 @@ var (
 	listLimit      int
 	listUnreadOnly bool
 	listJSON       bool
+	listAll        bool
 )
 
 var mailListCmd = &cobra.Command{
@@ -294,6 +297,7 @@ func init() {
 	mailListCmd.Flags().IntVar(&listLimit, "limit", 10, "Maximum number of emails")
 	mailListCmd.Flags().BoolVar(&listUnreadOnly, "unread", false, "Only unread emails")
 	mailListCmd.Flags().BoolVar(&listJSON, "json", false, "Output as JSON")
+	mailListCmd.Flags().BoolVar(&listAll, "all", false, "Show emails from all accounts")
 
 	// Read flags
 	readCmd.Flags().StringVar(&readFolder, "folder", "inbox", "Folder of the email")
@@ -387,6 +391,10 @@ func getGraphClient(ctx context.Context) (*mail.Client, error) {
 func runMailList(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
+	if listAll {
+		return runMailListAll(ctx)
+	}
+
 	client, err := getGraphClient(ctx)
 	if err != nil {
 		return err
@@ -431,6 +439,90 @@ func runMailList(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("\n%d emails shown\n", len(emails))
+
+	return nil
+}
+
+func runMailListAll(ctx context.Context) error {
+	tokens, err := getAllAccessTokens(ctx)
+	if err != nil {
+		return err
+	}
+
+	type result struct {
+		emails []mail.Email
+		email  string
+		err    error
+	}
+
+	results := make([]result, len(tokens))
+	var wg sync.WaitGroup
+
+	for i, at := range tokens {
+		if at.Error != nil {
+			results[i] = result{email: at.Email, err: at.Error}
+			continue
+		}
+		wg.Add(1)
+		go func(idx int, at AccountToken) {
+			defer wg.Done()
+			client := mail.NewClient(at.AccessToken)
+			folderID, err := client.GetFolderByName(listFolder)
+			if err != nil {
+				results[idx] = result{email: at.Email, err: err}
+				return
+			}
+			emails, err := client.ListEmails(folderID, listLimit, listUnreadOnly)
+			results[idx] = result{emails: emails, email: at.Email, err: err}
+		}(i, at)
+	}
+
+	wg.Wait()
+
+	var allEmails []mail.Email
+	for _, r := range results {
+		if r.err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: %s: %v\n", r.email, r.err)
+			continue
+		}
+		for i := range r.emails {
+			r.emails[i].Account = r.email
+			allEmails = append(allEmails, r.emails[i])
+		}
+	}
+
+	sort.Slice(allEmails, func(i, j int) bool {
+		return allEmails[i].Date.After(allEmails[j].Date)
+	})
+
+	if listJSON {
+		return outputJSON(allEmails)
+	}
+
+	if len(allEmails) == 0 {
+		printInfo("No emails found across all accounts.")
+		return nil
+	}
+
+	fmt.Printf("\n%-22s %-20s %-20s %-25s %s\n", "ACCOUNT", "ID", "Date", "From", "Subject")
+	fmt.Println(strings.Repeat("─", 130))
+
+	for _, email := range allEmails {
+		unreadMarker := " "
+		if email.Unread {
+			unreadMarker = "●"
+		}
+
+		acct := truncate(email.Account, 20)
+		id := truncate(email.MessageID, 18)
+		from := truncate(email.From, 23)
+		subject := truncate(email.Subject, 25)
+		date := email.Date.Local().Format("2006-01-02 15:04")
+
+		fmt.Printf("%s %-21s %-19s %-20s %-25s %s\n", unreadMarker, acct, id, date, from, subject)
+	}
+
+	fmt.Printf("\n%d emails across all accounts\n", len(allEmails))
 
 	return nil
 }

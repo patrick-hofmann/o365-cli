@@ -9,6 +9,7 @@ import (
 // Event represents a calendar event in the application layer.
 type Event struct {
 	ID             string     `json:"id"`
+	Account        string     `json:"account,omitempty"`
 	Subject        string     `json:"subject"`
 	Start          time.Time  `json:"start"`
 	End            time.Time  `json:"end"`
