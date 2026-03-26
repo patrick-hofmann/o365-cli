@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/yourname/o365-mail-cli/internal/config"
-	"github.com/yourname/o365-mail-cli/internal/profile"
+	"github.com/yourname/o365-cli/internal/config"
+	"github.com/yourname/o365-cli/internal/profile"
 )
 
 var configCmd = &cobra.Command{
@@ -33,8 +33,8 @@ Available keys:
   smtp_server     - SMTP server (default: smtp.office365.com)
 
 Examples:
-  o365-mail-cli config set client_id "your-client-id"
-  o365-mail-cli config set current_account "user@example.com"`,
+  o365-cli config set client_id "your-client-id"
+  o365-cli config set current_account "user@example.com"`,
 	Annotations: map[string]string{profile.AnnotationKey: "config.write"},
 	Args:        cobra.ExactArgs(2),
 	RunE:        runConfigSet,

@@ -1,6 +1,6 @@
 # Binaries (in root only)
-/o365-mail-cli
-/o365-mail-cli.exe
+/o365-cli
+/o365-cli.exe
 *.exe
 *.exe~
 *.dll

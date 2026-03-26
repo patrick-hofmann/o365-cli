@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/yourname/o365-mail-cli/internal/profile"
+	"github.com/yourname/o365-cli/internal/profile"
 )
 
 var foldersCmd = &cobra.Command{
@@ -28,8 +28,8 @@ var foldersCreateCmd = &cobra.Command{
 	Long: `Creates a new mail folder.
 
 Examples:
-  o365-mail-cli folders create "Archive"
-  o365-mail-cli folders create "Projects"`,
+  o365-cli folders create "Archive"
+  o365-cli folders create "Projects"`,
 	Annotations: map[string]string{profile.AnnotationKey: "folders.manage"},
 	Args:        cobra.ExactArgs(1),
 	RunE:        runFoldersCreate,
@@ -43,7 +43,7 @@ var foldersDeleteCmd = &cobra.Command{
 Warning: All emails in the folder will be deleted!
 
 Examples:
-  o365-mail-cli folders delete "Old Folder"`,
+  o365-cli folders delete "Old Folder"`,
 	Annotations: map[string]string{profile.AnnotationKey: "folders.manage"},
 	Args:        cobra.ExactArgs(1),
 	RunE:        runFoldersDelete,

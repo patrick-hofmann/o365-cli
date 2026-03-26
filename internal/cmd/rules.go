@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/yourname/o365-mail-cli/internal/mail"
-	"github.com/yourname/o365-mail-cli/internal/profile"
+	"github.com/yourname/o365-cli/internal/mail"
+	"github.com/yourname/o365-cli/internal/profile"
 )
 
 var rulesCmd = &cobra.Command{
@@ -27,8 +27,8 @@ var rulesListCmd = &cobra.Command{
 	Long: `Lists all inbox message rules.
 
 Examples:
-  o365-mail-cli rules list
-  o365-mail-cli rules list --json`,
+  o365-cli rules list
+  o365-cli rules list --json`,
 	Annotations: map[string]string{profile.AnnotationKey: "rules.read"},
 	RunE:        runRulesList,
 }
@@ -42,8 +42,8 @@ var rulesGetCmd = &cobra.Command{
 	Long: `Gets details of a specific inbox rule.
 
 Examples:
-  o365-mail-cli rules get AQMkADAwATM0...
-  o365-mail-cli rules get AQMkADAwATM0... --json`,
+  o365-cli rules get AQMkADAwATM0...
+  o365-cli rules get AQMkADAwATM0... --json`,
 	Annotations: map[string]string{profile.AnnotationKey: "rules.read"},
 	Args:        cobra.ExactArgs(1),
 	RunE:        runRulesGet,
@@ -81,16 +81,16 @@ var rulesCreateCmd = &cobra.Command{
 
 Examples:
   # Create rule to archive newsletters
-  o365-mail-cli rules create --name "Archive newsletters" \
+  o365-cli rules create --name "Archive newsletters" \
     --from-contains "@newsletter.com" \
     --move-to "Archive" \
     --mark-read
 
   # Create rule from JSON file
-  o365-mail-cli rules create --json-file rule.json
+  o365-cli rules create --json-file rule.json
 
   # Create rule to forward emails
-  o365-mail-cli rules create --name "Forward important" \
+  o365-cli rules create --name "Forward important" \
     --subject-contains "urgent" \
     --forward-to manager@example.com`,
 	Annotations: map[string]string{profile.AnnotationKey: "rules.manage"},
@@ -110,8 +110,8 @@ var rulesUpdateCmd = &cobra.Command{
 	Long: `Updates an existing inbox rule.
 
 Examples:
-  o365-mail-cli rules update AQMkADAwATM0... --name "New name"
-  o365-mail-cli rules update AQMkADAwATM0... --json-file updates.json`,
+  o365-cli rules update AQMkADAwATM0... --name "New name"
+  o365-cli rules update AQMkADAwATM0... --json-file updates.json`,
 	Annotations: map[string]string{profile.AnnotationKey: "rules.manage"},
 	Args:        cobra.ExactArgs(1),
 	RunE:        runRulesUpdate,
@@ -124,7 +124,7 @@ var rulesDeleteCmd = &cobra.Command{
 	Long: `Deletes an inbox message rule.
 
 Examples:
-  o365-mail-cli rules delete AQMkADAwATM0...`,
+  o365-cli rules delete AQMkADAwATM0...`,
 	Annotations: map[string]string{profile.AnnotationKey: "rules.manage"},
 	Args:        cobra.ExactArgs(1),
 	RunE:        runRulesDelete,
@@ -137,7 +137,7 @@ var rulesEnableCmd = &cobra.Command{
 	Long: `Enables an inbox message rule.
 
 Examples:
-  o365-mail-cli rules enable AQMkADAwATM0...`,
+  o365-cli rules enable AQMkADAwATM0...`,
 	Annotations: map[string]string{profile.AnnotationKey: "rules.manage"},
 	Args:        cobra.ExactArgs(1),
 	RunE:        runRulesEnable,
@@ -150,7 +150,7 @@ var rulesDisableCmd = &cobra.Command{
 	Long: `Disables an inbox message rule.
 
 Examples:
-  o365-mail-cli rules disable AQMkADAwATM0...`,
+  o365-cli rules disable AQMkADAwATM0...`,
 	Annotations: map[string]string{profile.AnnotationKey: "rules.manage"},
 	Args:        cobra.ExactArgs(1),
 	RunE:        runRulesDisable,

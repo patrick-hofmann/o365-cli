@@ -1,4 +1,4 @@
-module github.com/yourname/o365-mail-cli
+module github.com/yourname/o365-cli
 
 go 1.21
 

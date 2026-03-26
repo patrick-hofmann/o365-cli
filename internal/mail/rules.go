@@ -3,47 +3,49 @@ package mail
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/yourname/o365-cli/internal/graph"
 )
 
 // MessageRule represents an Outlook inbox rule
 type MessageRule struct {
-	ID          string                  `json:"id,omitempty"`
-	DisplayName string                  `json:"displayName"`
-	Sequence    int                     `json:"sequence,omitempty"`
-	IsEnabled   bool                    `json:"isEnabled"`
-	IsReadOnly  bool                    `json:"isReadOnly,omitempty"`
-	Conditions  *MessageRulePredicates  `json:"conditions,omitempty"`
-	Actions     *MessageRuleActions     `json:"actions,omitempty"`
-	Exceptions  *MessageRulePredicates  `json:"exceptions,omitempty"`
+	ID          string                 `json:"id,omitempty"`
+	DisplayName string                 `json:"displayName"`
+	Sequence    int                    `json:"sequence,omitempty"`
+	IsEnabled   bool                   `json:"isEnabled"`
+	IsReadOnly  bool                   `json:"isReadOnly,omitempty"`
+	Conditions  *MessageRulePredicates `json:"conditions,omitempty"`
+	Actions     *MessageRuleActions    `json:"actions,omitempty"`
+	Exceptions  *MessageRulePredicates `json:"exceptions,omitempty"`
 }
 
 // MessageRulePredicates contains conditions for matching messages
 type MessageRulePredicates struct {
 	// String matching
-	SubjectContains       []string                    `json:"subjectContains,omitempty"`
-	BodyContains          []string                    `json:"bodyContains,omitempty"`
-	SenderContains        []string                    `json:"senderContains,omitempty"`
-	RecipientContains     []string                    `json:"recipientContains,omitempty"`
-	HeaderContains        []string                    `json:"headerContains,omitempty"`
-	BodyOrSubjectContains []string                    `json:"bodyOrSubjectContains,omitempty"`
-	FromAddresses         []GraphEmailAddressWrapper  `json:"fromAddresses,omitempty"`
-	SentToAddresses       []GraphEmailAddressWrapper  `json:"sentToAddresses,omitempty"`
+	SubjectContains       []string                       `json:"subjectContains,omitempty"`
+	BodyContains          []string                       `json:"bodyContains,omitempty"`
+	SenderContains        []string                       `json:"senderContains,omitempty"`
+	RecipientContains     []string                       `json:"recipientContains,omitempty"`
+	HeaderContains        []string                       `json:"headerContains,omitempty"`
+	BodyOrSubjectContains []string                       `json:"bodyOrSubjectContains,omitempty"`
+	FromAddresses         []graph.GraphEmailAddressWrapper `json:"fromAddresses,omitempty"`
+	SentToAddresses       []graph.GraphEmailAddressWrapper `json:"sentToAddresses,omitempty"`
 	// Boolean conditions
-	HasAttachments            *bool  `json:"hasAttachments,omitempty"`
-	IsAutomaticForward        *bool  `json:"isAutomaticForward,omitempty"`
-	IsAutomaticReply          *bool  `json:"isAutomaticReply,omitempty"`
-	IsEncrypted               *bool  `json:"isEncrypted,omitempty"`
-	IsMeetingRequest          *bool  `json:"isMeetingRequest,omitempty"`
-	IsMeetingResponse         *bool  `json:"isMeetingResponse,omitempty"`
-	IsNonDeliveryReport       *bool  `json:"isNonDeliveryReport,omitempty"`
-	IsPermissionControlled    *bool  `json:"isPermissionControlled,omitempty"`
-	IsReadReceipt             *bool  `json:"isReadReceipt,omitempty"`
-	IsSigned                  *bool  `json:"isSigned,omitempty"`
-	IsVoicemail               *bool  `json:"isVoicemail,omitempty"`
-	SentOnlyToMe              *bool  `json:"sentOnlyToMe,omitempty"`
-	SentToMe                  *bool  `json:"sentToMe,omitempty"`
-	SentCcMe                  *bool  `json:"sentCcMe,omitempty"`
-	SentToOrCcMe              *bool  `json:"sentToOrCcMe,omitempty"`
+	HasAttachments         *bool `json:"hasAttachments,omitempty"`
+	IsAutomaticForward     *bool `json:"isAutomaticForward,omitempty"`
+	IsAutomaticReply       *bool `json:"isAutomaticReply,omitempty"`
+	IsEncrypted            *bool `json:"isEncrypted,omitempty"`
+	IsMeetingRequest       *bool `json:"isMeetingRequest,omitempty"`
+	IsMeetingResponse      *bool `json:"isMeetingResponse,omitempty"`
+	IsNonDeliveryReport    *bool `json:"isNonDeliveryReport,omitempty"`
+	IsPermissionControlled *bool `json:"isPermissionControlled,omitempty"`
+	IsReadReceipt          *bool `json:"isReadReceipt,omitempty"`
+	IsSigned               *bool `json:"isSigned,omitempty"`
+	IsVoicemail            *bool `json:"isVoicemail,omitempty"`
+	SentOnlyToMe           *bool `json:"sentOnlyToMe,omitempty"`
+	SentToMe               *bool `json:"sentToMe,omitempty"`
+	SentCcMe               *bool `json:"sentCcMe,omitempty"`
+	SentToOrCcMe           *bool `json:"sentToOrCcMe,omitempty"`
 	// Enum conditions
 	Importance        string `json:"importance,omitempty"`
 	MessageActionFlag string `json:"messageActionFlag,omitempty"`
@@ -60,17 +62,17 @@ type SizeRange struct {
 
 // MessageRuleActions contains actions to perform on matching messages
 type MessageRuleActions struct {
-	AssignCategories      []string                    `json:"assignCategories,omitempty"`
-	CopyToFolder          string                      `json:"copyToFolder,omitempty"`
-	Delete                *bool                       `json:"delete,omitempty"`
-	ForwardAsAttachmentTo []GraphEmailAddressWrapper  `json:"forwardAsAttachmentTo,omitempty"`
-	ForwardTo             []GraphEmailAddressWrapper  `json:"forwardTo,omitempty"`
-	MarkAsRead            *bool                       `json:"markAsRead,omitempty"`
-	MarkImportance        string                      `json:"markImportance,omitempty"`
-	MoveToFolder          string                      `json:"moveToFolder,omitempty"`
-	PermanentDelete       *bool                       `json:"permanentDelete,omitempty"`
-	RedirectTo            []GraphEmailAddressWrapper  `json:"redirectTo,omitempty"`
-	StopProcessingRules   *bool                       `json:"stopProcessingRules,omitempty"`
+	AssignCategories      []string                       `json:"assignCategories,omitempty"`
+	CopyToFolder          string                         `json:"copyToFolder,omitempty"`
+	Delete                *bool                          `json:"delete,omitempty"`
+	ForwardAsAttachmentTo []graph.GraphEmailAddressWrapper `json:"forwardAsAttachmentTo,omitempty"`
+	ForwardTo             []graph.GraphEmailAddressWrapper `json:"forwardTo,omitempty"`
+	MarkAsRead            *bool                          `json:"markAsRead,omitempty"`
+	MarkImportance        string                         `json:"markImportance,omitempty"`
+	MoveToFolder          string                         `json:"moveToFolder,omitempty"`
+	PermanentDelete       *bool                          `json:"permanentDelete,omitempty"`
+	RedirectTo            []graph.GraphEmailAddressWrapper `json:"redirectTo,omitempty"`
+	StopProcessingRules   *bool                          `json:"stopProcessingRules,omitempty"`
 }
 
 // GraphRulesResponse represents the list response for message rules
@@ -80,10 +82,10 @@ type GraphRulesResponse struct {
 }
 
 // ListRules lists all inbox message rules
-func (c *GraphClient) ListRules() ([]MessageRule, error) {
-	endpoint := fmt.Sprintf("%s/me/mailFolders/inbox/messageRules", GraphAPIBaseURL)
+func (c *Client) ListRules() ([]MessageRule, error) {
+	endpoint := fmt.Sprintf("%s/me/mailFolders/inbox/messageRules", graph.GraphAPIBaseURL)
 
-	resp, err := c.doRequest("GET", endpoint, nil)
+	resp, err := c.DoRequest("GET", endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -97,10 +99,10 @@ func (c *GraphClient) ListRules() ([]MessageRule, error) {
 }
 
 // GetRule gets a specific inbox message rule
-func (c *GraphClient) GetRule(ruleID string) (*MessageRule, error) {
-	endpoint := fmt.Sprintf("%s/me/mailFolders/inbox/messageRules/%s", GraphAPIBaseURL, ruleID)
+func (c *Client) GetRule(ruleID string) (*MessageRule, error) {
+	endpoint := fmt.Sprintf("%s/me/mailFolders/inbox/messageRules/%s", graph.GraphAPIBaseURL, ruleID)
 
-	resp, err := c.doRequest("GET", endpoint, nil)
+	resp, err := c.DoRequest("GET", endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -114,15 +116,15 @@ func (c *GraphClient) GetRule(ruleID string) (*MessageRule, error) {
 }
 
 // CreateRule creates a new inbox message rule
-func (c *GraphClient) CreateRule(rule *MessageRule) (*MessageRule, error) {
-	endpoint := fmt.Sprintf("%s/me/mailFolders/inbox/messageRules", GraphAPIBaseURL)
+func (c *Client) CreateRule(rule *MessageRule) (*MessageRule, error) {
+	endpoint := fmt.Sprintf("%s/me/mailFolders/inbox/messageRules", graph.GraphAPIBaseURL)
 
 	jsonBody, err := json.Marshal(rule)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal rule: %w", err)
 	}
 
-	resp, err := c.doRequest("POST", endpoint, jsonBody)
+	resp, err := c.DoRequest("POST", endpoint, jsonBody)
 	if err != nil {
 		return nil, err
 	}
@@ -136,15 +138,15 @@ func (c *GraphClient) CreateRule(rule *MessageRule) (*MessageRule, error) {
 }
 
 // UpdateRule updates an existing inbox message rule
-func (c *GraphClient) UpdateRule(ruleID string, updates *MessageRule) (*MessageRule, error) {
-	endpoint := fmt.Sprintf("%s/me/mailFolders/inbox/messageRules/%s", GraphAPIBaseURL, ruleID)
+func (c *Client) UpdateRule(ruleID string, updates *MessageRule) (*MessageRule, error) {
+	endpoint := fmt.Sprintf("%s/me/mailFolders/inbox/messageRules/%s", graph.GraphAPIBaseURL, ruleID)
 
 	jsonBody, err := json.Marshal(updates)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal updates: %w", err)
 	}
 
-	resp, err := c.doRequest("PATCH", endpoint, jsonBody)
+	resp, err := c.DoRequest("PATCH", endpoint, jsonBody)
 	if err != nil {
 		return nil, err
 	}
@@ -158,40 +160,40 @@ func (c *GraphClient) UpdateRule(ruleID string, updates *MessageRule) (*MessageR
 }
 
 // DeleteRule deletes an inbox message rule
-func (c *GraphClient) DeleteRule(ruleID string) error {
-	endpoint := fmt.Sprintf("%s/me/mailFolders/inbox/messageRules/%s", GraphAPIBaseURL, ruleID)
+func (c *Client) DeleteRule(ruleID string) error {
+	endpoint := fmt.Sprintf("%s/me/mailFolders/inbox/messageRules/%s", graph.GraphAPIBaseURL, ruleID)
 
-	_, err := c.doRequest("DELETE", endpoint, nil)
+	_, err := c.DoRequest("DELETE", endpoint, nil)
 	return err
 }
 
 // EnableRule enables an inbox message rule
-func (c *GraphClient) EnableRule(ruleID string) (*MessageRule, error) {
+func (c *Client) EnableRule(ruleID string) (*MessageRule, error) {
 	return c.UpdateRule(ruleID, &MessageRule{IsEnabled: true})
 }
 
 // DisableRule disables an inbox message rule
-func (c *GraphClient) DisableRule(ruleID string) (*MessageRule, error) {
+func (c *Client) DisableRule(ruleID string) (*MessageRule, error) {
 	return c.UpdateRule(ruleID, &MessageRule{IsEnabled: false})
 }
 
-// Helper function to create email address wrapper from string
-func ToEmailAddressWrapper(address string) GraphEmailAddressWrapper {
-	return GraphEmailAddressWrapper{
-		EmailAddress: GraphEmailAddress{Address: ParseEmail(address)},
+// ToEmailAddressWrapper creates email address wrapper from string
+func ToEmailAddressWrapper(address string) graph.GraphEmailAddressWrapper {
+	return graph.GraphEmailAddressWrapper{
+		EmailAddress: graph.GraphEmailAddress{Address: graph.ParseEmail(address)},
 	}
 }
 
-// Helper function to create multiple email address wrappers
-func ToEmailAddressWrappers(addresses []string) []GraphEmailAddressWrapper {
-	result := make([]GraphEmailAddressWrapper, len(addresses))
+// ToEmailAddressWrappers creates multiple email address wrappers
+func ToEmailAddressWrappers(addresses []string) []graph.GraphEmailAddressWrapper {
+	result := make([]graph.GraphEmailAddressWrapper, len(addresses))
 	for i, addr := range addresses {
 		result[i] = ToEmailAddressWrapper(addr)
 	}
 	return result
 }
 
-// Helper to get bool pointer
+// BoolPtr returns a pointer to a bool value
 func BoolPtr(b bool) *bool {
 	return &b
 }

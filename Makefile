@@ -1,10 +1,10 @@
-# o365-mail-cli Makefile
+# o365-cli Makefile
 # Cross-Platform Build Support
 
-BINARY_NAME=o365-mail-cli
-VERSION=1.2.0
+BINARY_NAME=o365-cli
+VERSION=2.0.0
 BUILD_DIR=dist
-MAIN_PATH=./cmd/o365-mail-cli
+MAIN_PATH=./cmd/o365-cli
 
 # Build flags
 LDFLAGS=-ldflags "-s -w -X main.Version=$(VERSION)"
@@ -89,7 +89,7 @@ docker-build:
 
 # Hilfe
 help:
-	@echo "o365-mail-cli Build System"
+	@echo "o365-cli Build System"
 	@echo ""
 	@echo "Targets:"
 	@echo "  build         - Build für aktuelle Plattform"

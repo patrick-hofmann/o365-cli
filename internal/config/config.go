@@ -11,10 +11,38 @@ import (
 )
 
 const (
-	ConfigDirName    = ".o365-mail-cli"
-	ConfigFileName   = "config"
-	AccountsFileName = "accounts.yaml"
+	ConfigDirName       = ".o365-cli"
+	LegacyConfigDirName = ".o365-mail-cli"
+	ConfigFileName      = "config"
+	AccountsFileName    = "accounts.yaml"
 )
+
+// MigrateIfNeeded migrates the config directory from ~/.o365-mail-cli/ to ~/.o365-cli/
+// if the new directory does not exist but the legacy one does.
+func MigrateIfNeeded() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+
+	newDir := filepath.Join(home, ConfigDirName)
+	oldDir := filepath.Join(home, LegacyConfigDirName)
+
+	// If new dir already exists, nothing to do
+	if _, err := os.Stat(newDir); err == nil {
+		return nil
+	}
+
+	// If old dir exists, migrate
+	if _, err := os.Stat(oldDir); err == nil {
+		if err := os.Rename(oldDir, newDir); err != nil {
+			return fmt.Errorf("failed to migrate config directory: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "Migrated configuration from ~/%s/ to ~/%s/\n", LegacyConfigDirName, ConfigDirName)
+	}
+
+	return nil
+}
 
 // Config holds all configuration options
 type Config struct {

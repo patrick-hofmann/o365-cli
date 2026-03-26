@@ -9,9 +9,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/yourname/o365-mail-cli/internal/auth"
-	"github.com/yourname/o365-mail-cli/internal/mail"
-	"github.com/yourname/o365-mail-cli/internal/profile"
+	"github.com/yourname/o365-cli/internal/mail"
+	"github.com/yourname/o365-cli/internal/profile"
 )
 
 var mailCmd = &cobra.Command{
@@ -34,10 +33,10 @@ var mailListCmd = &cobra.Command{
 	Long: `Lists emails from a folder.
 
 Examples:
-  o365-mail-cli mail list
-  o365-mail-cli mail list --folder "Sent Items" --limit 20
-  o365-mail-cli mail list --unread
-  o365-mail-cli mail list --json`,
+  o365-cli mail list
+  o365-cli mail list --folder "Sent Items" --limit 20
+  o365-cli mail list --unread
+  o365-cli mail list --json`,
 	Annotations: map[string]string{profile.AnnotationKey: "mail.read"},
 	RunE:        runMailList,
 }
@@ -53,8 +52,8 @@ var readCmd = &cobra.Command{
 Find the message ID in the output of 'mail list --json'.
 
 Examples:
-  o365-mail-cli mail read AAMkAGI2...
-  o365-mail-cli mail read AAMkAGI2... --folder "Sent Items"`,
+  o365-cli mail read AAMkAGI2...
+  o365-cli mail read AAMkAGI2... --folder "Sent Items"`,
 	Annotations: map[string]string{profile.AnnotationKey: "mail.read"},
 	Args:        cobra.ExactArgs(1),
 	RunE:        runRead,
@@ -77,9 +76,9 @@ var sendCmd = &cobra.Command{
 	Long: `Sends an email via Microsoft Graph API.
 
 Examples:
-  o365-mail-cli mail send --to user@example.com --subject "Test" --body "Hello!"
-  o365-mail-cli mail send --to user@example.com --subject "Report" --body-file report.txt
-  o365-mail-cli mail send --to user@example.com --cc boss@example.com --subject "Info" --body "Text"`,
+  o365-cli mail send --to user@example.com --subject "Test" --body "Hello!"
+  o365-cli mail send --to user@example.com --subject "Report" --body-file report.txt
+  o365-cli mail send --to user@example.com --cc boss@example.com --subject "Info" --body "Text"`,
 	Annotations: map[string]string{profile.AnnotationKey: "mail.send"},
 	RunE:        runSend,
 }
@@ -93,8 +92,8 @@ var markReadCmd = &cobra.Command{
 	Long: `Marks an email as read.
 
 Examples:
-  o365-mail-cli mail mark-read AAMkAGI2...
-  o365-mail-cli mail mark-read AAMkAGI2... --folder "Archive"`,
+  o365-cli mail mark-read AAMkAGI2...
+  o365-cli mail mark-read AAMkAGI2... --folder "Archive"`,
 	Annotations: map[string]string{profile.AnnotationKey: "mail.modify"},
 	Args:        cobra.ExactArgs(1),
 	RunE:        runMarkRead,
@@ -109,8 +108,8 @@ var markUnreadCmd = &cobra.Command{
 	Long: `Marks an email as unread.
 
 Examples:
-  o365-mail-cli mail mark-unread AAMkAGI2...
-  o365-mail-cli mail mark-unread AAMkAGI2... --folder "Archive"`,
+  o365-cli mail mark-unread AAMkAGI2...
+  o365-cli mail mark-unread AAMkAGI2... --folder "Archive"`,
 	Annotations: map[string]string{profile.AnnotationKey: "mail.modify"},
 	Args:        cobra.ExactArgs(1),
 	RunE:        runMarkUnread,
@@ -128,8 +127,8 @@ var moveCmd = &cobra.Command{
 	Long: `Moves an email to another folder.
 
 Examples:
-  o365-mail-cli mail move AAMkAGI2... --to "Archive"
-  o365-mail-cli mail move AAMkAGI2... --folder "Sent Items" --to "Archive"`,
+  o365-cli mail move AAMkAGI2... --to "Archive"
+  o365-cli mail move AAMkAGI2... --folder "Sent Items" --to "Archive"`,
 	Annotations: map[string]string{profile.AnnotationKey: "mail.move"},
 	Args:        cobra.ExactArgs(1),
 	RunE:        runMove,
@@ -145,8 +144,8 @@ var trashCmd = &cobra.Command{
 This is a safe delete - the email can be recovered from Trash.
 
 Examples:
-  o365-mail-cli mail trash AAMkAGI2...
-  o365-mail-cli mail trash AAMkAGI2... --folder "Spam"`,
+  o365-cli mail trash AAMkAGI2...
+  o365-cli mail trash AAMkAGI2... --folder "Spam"`,
 	Annotations: map[string]string{profile.AnnotationKey: "mail.delete"},
 	Args:        cobra.ExactArgs(1),
 	RunE:        runTrash,
@@ -168,10 +167,10 @@ var searchCmd = &cobra.Command{
 	Long: `Searches emails by various criteria.
 
 Examples:
-  o365-mail-cli mail search --from "sender@example.com"
-  o365-mail-cli mail search --subject "important"
-  o365-mail-cli mail search --since 24h
-  o365-mail-cli mail search --from "boss@company.com" --since 7d --json`,
+  o365-cli mail search --from "sender@example.com"
+  o365-cli mail search --subject "important"
+  o365-cli mail search --since 24h
+  o365-cli mail search --from "boss@company.com" --since 7d --json`,
 	Annotations: map[string]string{profile.AnnotationKey: "mail.read"},
 	RunE:        runSearch,
 }
@@ -197,10 +196,10 @@ KQL examples:
   Boolean:                budget AND 2024
 
 Examples:
-  o365-mail-cli mail query "test"
-  o365-mail-cli mail query "from:sender@example.com"
-  o365-mail-cli mail query "subject:urgent" --folder all
-  o365-mail-cli mail query "quarterly report" --limit 20 --json`,
+  o365-cli mail query "test"
+  o365-cli mail query "from:sender@example.com"
+  o365-cli mail query "subject:urgent" --folder all
+  o365-cli mail query "quarterly report" --limit 20 --json`,
 	Annotations: map[string]string{profile.AnnotationKey: "mail.read"},
 	Args:        cobra.ExactArgs(1),
 	RunE:        runQuery,
@@ -218,8 +217,8 @@ var attachmentsCmd = &cobra.Command{
 	Long: `Downloads attachments from an email.
 
 Examples:
-  o365-mail-cli mail attachments AAMkAGI2... --save-to ./downloads
-  o365-mail-cli mail attachments AAMkAGI2... --folder "Sent Items" --save-to /tmp/attachments`,
+  o365-cli mail attachments AAMkAGI2... --save-to ./downloads
+  o365-cli mail attachments AAMkAGI2... --folder "Sent Items" --save-to /tmp/attachments`,
 	Annotations: map[string]string{profile.AnnotationKey: "mail.read"},
 	Args:        cobra.ExactArgs(1),
 	RunE:        runAttachments,
@@ -239,9 +238,9 @@ var replyCmd = &cobra.Command{
 	Long: `Replies to an email.
 
 Examples:
-  o365-mail-cli mail reply AAMkAGI2... --body "Thank you for your email!"
-  o365-mail-cli mail reply AAMkAGI2... --body-file response.txt
-  o365-mail-cli mail reply AAMkAGI2... --body "Thanks!" --reply-all`,
+  o365-cli mail reply AAMkAGI2... --body "Thank you for your email!"
+  o365-cli mail reply AAMkAGI2... --body-file response.txt
+  o365-cli mail reply AAMkAGI2... --body "Thanks!" --reply-all`,
 	Annotations: map[string]string{profile.AnnotationKey: "mail.send"},
 	Args:        cobra.ExactArgs(1),
 	RunE:        runReply,
@@ -261,8 +260,8 @@ var forwardCmd = &cobra.Command{
 	Long: `Forwards an email to new recipients.
 
 Examples:
-  o365-mail-cli mail forward AAMkAGI2... --to colleague@example.com
-  o365-mail-cli mail forward AAMkAGI2... --to colleague@example.com --body "FYI - please review"`,
+  o365-cli mail forward AAMkAGI2... --to colleague@example.com
+  o365-cli mail forward AAMkAGI2... --to colleague@example.com --body "FYI - please review"`,
 	Annotations: map[string]string{profile.AnnotationKey: "mail.send"},
 	Args:        cobra.ExactArgs(1),
 	RunE:        runForward,
@@ -281,9 +280,9 @@ var archiveFromCmd = &cobra.Command{
 Uses exact matching on the sender's email address.
 
 Examples:
-  o365-mail-cli mail archive-from notifications@example.com
-  o365-mail-cli mail archive-from noreply@service.com alerts@monitor.com
-  o365-mail-cli mail archive-from spam@example.com --dry-run`,
+  o365-cli mail archive-from notifications@example.com
+  o365-cli mail archive-from noreply@service.com alerts@monitor.com
+  o365-cli mail archive-from spam@example.com --dry-run`,
 	Annotations: map[string]string{profile.AnnotationKey: "mail.move"},
 	Args:        cobra.MinimumNArgs(1),
 	RunE:        runArchiveFrom,
@@ -376,23 +375,13 @@ func init() {
 }
 
 // getGraphClient creates a Graph API client with authentication
-func getGraphClient(ctx context.Context) (*mail.GraphClient, error) {
-	account := getActiveAccount()
-	if account == "" {
-		return nil, fmt.Errorf("no account configured. Please run 'auth login'")
-	}
-
-	oauthClient, err := auth.NewOAuthClient(cfg.ClientID, cfg.CacheDir)
+func getGraphClient(ctx context.Context) (*mail.Client, error) {
+	accessToken, err := getAccessToken(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	accessToken, err := oauthClient.GetAccessToken(ctx, account)
-	if err != nil {
-		return nil, fmt.Errorf("not logged in: %w", err)
-	}
-
-	return mail.NewGraphClient(accessToken), nil
+	return mail.NewClient(accessToken), nil
 }
 
 func runMailList(cmd *cobra.Command, args []string) error {

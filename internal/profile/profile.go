@@ -32,10 +32,10 @@ func (p *Profile) IsAllowed(permission string) bool {
 	return false
 }
 
-// ProfilesDir returns the path to ~/.o365-mail-cli/profiles/
+// ProfilesDir returns the path to ~/.o365-cli/profiles/
 func ProfilesDir() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".o365-mail-cli", profilesDirName)
+	return filepath.Join(home, ".o365-cli", profilesDirName)
 }
 
 // LoadProfile loads a profile by name from the profiles directory.

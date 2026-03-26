@@ -220,7 +220,7 @@ func TestResolveProfile_NoProfileDir(t *testing.T) {
 }
 
 func TestFullCommandName(t *testing.T) {
-	root := &cobra.Command{Use: "o365-mail-cli"}
+	root := &cobra.Command{Use: "o365-cli"}
 	mail := &cobra.Command{Use: "mail"}
 	send := &cobra.Command{Use: "send"}
 	root.AddCommand(mail)
@@ -233,7 +233,7 @@ func TestFullCommandName(t *testing.T) {
 }
 
 func TestFullCommandName_Drafts(t *testing.T) {
-	root := &cobra.Command{Use: "o365-mail-cli"}
+	root := &cobra.Command{Use: "o365-cli"}
 	mail := &cobra.Command{Use: "mail"}
 	drafts := &cobra.Command{Use: "drafts"}
 	create := &cobra.Command{Use: "create"}

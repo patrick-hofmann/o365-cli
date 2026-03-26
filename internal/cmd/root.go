@@ -1,12 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/yourname/o365-mail-cli/internal/config"
-	"github.com/yourname/o365-mail-cli/internal/profile"
+	"github.com/yourname/o365-cli/internal/auth"
+	"github.com/yourname/o365-cli/internal/config"
+	"github.com/yourname/o365-cli/internal/profile"
 )
 
 var (
@@ -20,23 +22,34 @@ var (
 
 // rootCmd is the base command
 var rootCmd = &cobra.Command{
-	Use:   "o365-mail-cli",
-	Short: "Office 365 Email CLI with OAuth2",
-	Long: `A cross-platform CLI tool for Office 365 email access.
+	Use:   "o365-cli",
+	Short: "Microsoft 365 CLI for mail and calendar",
+	Long: `A cross-platform CLI tool for Microsoft 365 mail and calendar access.
 
 Uses OAuth2 Device Code Flow for authentication -
 no admin approval or API keys required.
 
 Examples:
   # Login
-  o365-mail-cli auth login
+  o365-cli auth login
 
   # List emails
-  o365-mail-cli mail list
+  o365-cli mail list
 
   # Send email
-  o365-mail-cli mail send --to recipient@example.com --subject "Test" --body "Hello!"`,
+  o365-cli mail send --to recipient@example.com --subject "Test" --body "Hello!"
+
+  # List calendar events
+  o365-cli calendar list
+
+  # Today's events
+  o365-cli calendar today`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		// Migrate config directory from ~/.o365-mail-cli/ to ~/.o365-cli/ if needed
+		if err := config.MigrateIfNeeded(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: config migration failed: %v\n", err)
+		}
+
 		// Load configuration
 		var err error
 		cfg, err = config.Load()
@@ -69,7 +82,7 @@ func Execute() error {
 
 func init() {
 	// Global flags
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "Config file (default: ~/.o365-mail-cli/config.yaml)")
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "Config file (default: ~/.o365-cli/config.yaml)")
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "Enable debug output")
 	rootCmd.PersistentFlags().StringVar(&accountFlag, "account", "", "Account to use (email address)")
 	rootCmd.PersistentFlags().StringVar(&profileFlag, "profile", "", "Permission profile to use")
@@ -80,6 +93,7 @@ func init() {
 	rootCmd.AddCommand(foldersCmd)
 	rootCmd.AddCommand(rulesCmd)
 	rootCmd.AddCommand(configCmd)
+	rootCmd.AddCommand(calendarCmd)
 	rootCmd.AddCommand(versionCmd)
 }
 
@@ -105,12 +119,33 @@ func getActiveAccount() string {
 	return config.GetFirstAccount()
 }
 
+// getAccessToken obtains an access token for the active account.
+// Shared by mail and calendar client factories.
+func getAccessToken(ctx context.Context) (string, error) {
+	account := getActiveAccount()
+	if account == "" {
+		return "", fmt.Errorf("no account configured. Please run 'auth login'")
+	}
+
+	oauthClient, err := auth.NewOAuthClient(cfg.ClientID, cfg.CacheDir)
+	if err != nil {
+		return "", err
+	}
+
+	accessToken, err := oauthClient.GetAccessToken(ctx, account)
+	if err != nil {
+		return "", fmt.Errorf("not logged in: %w", err)
+	}
+
+	return accessToken, nil
+}
+
 // versionCmd shows the version
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Show version",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("o365-mail-cli v1.2.0")
+		fmt.Println("o365-cli v2.0.0")
 	},
 }
 

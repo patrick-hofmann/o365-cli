@@ -1,43 +1,19 @@
-# O365 Mail CLI
+# O365 CLI
 
-A cross-platform CLI tool for Office 365 email access via OAuth2 – no admin approval, no API keys required.
+A cross-platform CLI tool for Microsoft 365 mail and calendar access via OAuth2 – no admin approval, no API keys required.
 
 ## How It Works
 
-The tool uses the **OAuth2 Device Authorization Flow** with a Multi-Tenant Public Client App. Any O365 user can authenticate without requiring administrator approval.
-
-```
-┌─────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│   CLI Tool  │────▶│  Microsoft Login │────▶│  Office 365     │
-│             │     │  (Device Code)   │     │  IMAP/SMTP      │
-└─────────────┘     └──────────────────┘     └─────────────────┘
-       │                    │                        │
-       │  1. Device Code    │                        │
-       │◀───────────────────│                        │
-       │                    │                        │
-       │  2. User opens     │                        │
-       │     browser &      │                        │
-       │     enters code    │                        │
-       │                    │                        │
-       │  3. Access Token   │                        │
-       │◀───────────────────│                        │
-       │                    │                        │
-       │  4. XOAUTH2 Login  │                        │
-       │─────────────────────────────────────────────▶│
-       │                    │                        │
-       │  5. Emails         │                        │
-       │◀────────────────────────────────────────────│
-└─────────────┘     └──────────────────┘     └─────────────────┘
-```
+The tool uses the **OAuth2 Device Authorization Flow** with a Multi-Tenant Public Client App. Any O365 user can authenticate without requiring administrator approval. All operations use the **Microsoft Graph API**.
 
 ## Prerequisites
 
-### Option A: Register Your Own Azure App (Recommended)
+### Register Your Own Azure App (Recommended)
 
 1. **Open Azure Portal**: https://portal.azure.com
 2. **Create App Registration**:
    - Navigate to "Microsoft Entra ID" → "App registrations" → "New registration"
-   - Name: e.g., "O365 Mail CLI"
+   - Name: e.g., "O365 CLI"
    - Supported account types: **"Accounts in any organizational directory (Any Microsoft Entra ID tenant - Multitenant)"**
    - Redirect URI: Type "Public client/native", URI: `http://localhost`
    - Click "Register"
@@ -53,81 +29,48 @@ The tool uses the **OAuth2 Device Authorization Flow** with a Multi-Tenant Publi
    - "API permissions" → "Add a permission" → "Microsoft Graph"
    - Select "Delegated permissions"
    - Add:
-     - `IMAP.AccessAsUser.All`
-     - `SMTP.Send`
+     - `Mail.ReadWrite`
+     - `Mail.Send`
+     - `Calendars.ReadWrite`
      - `offline_access` (for Refresh Tokens)
-     - `User.Read` (for profile information)
-   - Alternatively: "APIs my organization uses" → "Office 365 Exchange Online"
-     - `IMAP.AccessAsUser.All`
-     - `SMTP.Send`
 
 6. **Done!** No admin consent required for these permissions.
-
-### Option B: Use Existing Client ID (Gray Area)
-
-Thunderbird and other clients use publicly known Client IDs:
-
-```
-# Thunderbird
-08162f7c-0fd2-4200-a84a-f25a4db0b584
-
-# Microsoft Office
-d3590ed6-52b3-4102-aeff-aad2292ab01c
-```
-
-⚠️ These IDs work but are technically not intended for third-party tools.
 
 ## Installation
 
 ### Pre-compiled Binaries
 
-Download the appropriate binary from [Releases](https://github.com/patrick-hofmann/o365-mail-cli/releases):
+Download the appropriate binary from [Releases](https://github.com/patrick-hofmann/o365-cli/releases):
 
 | Platform | File |
 |----------|------|
-| Windows | `o365-mail-cli-windows-amd64.exe` |
-| macOS Intel | `o365-mail-cli-darwin-amd64` |
-| macOS Apple Silicon | `o365-mail-cli-darwin-arm64` |
-| Linux | `o365-mail-cli-linux-amd64` |
+| Windows | `o365-cli-windows-amd64.exe` |
+| macOS Intel | `o365-cli-darwin-amd64` |
+| macOS Apple Silicon | `o365-cli-darwin-arm64` |
+| Linux | `o365-cli-linux-amd64` |
 
 ### Build from Source
 
 ```bash
 # Go 1.21+ required
-git clone https://github.com/patrick-hofmann/o365-mail-cli.git
-cd o365-mail-cli
-go build -o o365-mail-cli ./cmd/o365-mail-cli
+git clone https://github.com/patrick-hofmann/o365-cli.git
+cd o365-cli
+go build -o o365-cli ./cmd/o365-cli
 ```
 
 ### Cross-Compilation
 
 ```bash
-# All platforms at once
 make build-all
-
-# Or manually
-GOOS=windows GOARCH=amd64 go build -o dist/o365-mail-cli-windows-amd64.exe ./cmd/o365-mail-cli
-GOOS=darwin GOARCH=amd64 go build -o dist/o365-mail-cli-darwin-amd64 ./cmd/o365-mail-cli
-GOOS=darwin GOARCH=arm64 go build -o dist/o365-mail-cli-darwin-arm64 ./cmd/o365-mail-cli
-GOOS=linux GOARCH=amd64 go build -o dist/o365-mail-cli-linux-amd64 ./cmd/o365-mail-cli
 ```
 
 ## Configuration
 
-The tool works out-of-the-box with the built-in Client ID. Optionally, you can create `~/.o365-mail-cli/config.yaml`:
+The tool works out-of-the-box with the built-in Client ID. Optionally, create `~/.o365-cli/config.yaml`:
 
 ```yaml
-# Azure App Client ID (optional, default is already configured)
-client_id: "5aa6d895-1072-41c4-beb6-d8e3fdf0e7cd"
-
-# Active account (set automatically on login)
+client_id: "your-azure-app-client-id"
 current_account: "user@example.com"
-
-# IMAP/SMTP Server (O365 defaults)
-imap_server: "outlook.office365.com"
-imap_port: 993
-smtp_server: "smtp.office365.com"
-smtp_port: 587
 ```
 
 Or set environment variables:
@@ -142,235 +85,207 @@ export O365_ACCOUNT="user@example.com"
 ### Authentication
 
 ```bash
-# Login (multiple accounts supported)
-o365-mail-cli auth login
-
-# List all logged-in accounts
-o365-mail-cli auth list
-
-# Check token status for all accounts
-o365-mail-cli auth status
-
-# Switch active account
-o365-mail-cli auth switch user2@example.com
-
-# Logout specific account
-o365-mail-cli auth logout user@example.com
-
-# Logout all accounts
-o365-mail-cli auth logout --all
+o365-cli auth login            # Login (multiple accounts supported)
+o365-cli auth list             # List all logged-in accounts
+o365-cli auth status           # Check token status
+o365-cli auth switch user2@example.com  # Switch active account
+o365-cli auth logout user@example.com   # Logout specific account
+o365-cli auth logout --all     # Logout all accounts
 ```
 
 ### Multi-Account Support
 
 ```bash
-# Specify account for command (overrides active account)
-o365-mail-cli --account user2@example.com mail list
-
+o365-cli --account user2@example.com mail list
 # Or via environment variable
-O365_ACCOUNT="user2@example.com" o365-mail-cli mail list
+O365_ACCOUNT="user2@example.com" o365-cli mail list
 ```
 
 Priority: `--account` flag → `O365_ACCOUNT` env → `current_account` in config
 
-### Reading Emails
+### Mail
 
 ```bash
-# Last 10 emails from INBOX
-o365-mail-cli mail list
+# List emails
+o365-cli mail list
+o365-cli mail list --folder "Sent Items" --limit 20
+o365-cli mail list --unread --json
 
-# Show more emails
-o365-mail-cli mail list --limit 50
+# Read email
+o365-cli mail read <message-id>
 
-# Read from different folder
-o365-mail-cli mail list --folder "Sent Items"
+# Send email
+o365-cli mail send --to user@example.com --subject "Test" --body "Hello!"
+o365-cli mail send --to user@example.com --body-file report.txt --html
 
-# Show email content
-o365-mail-cli mail read <message-id>
+# Reply / Forward
+o365-cli mail reply <message-id> --body "Thanks!"
+o365-cli mail forward <message-id> --to other@example.com
 
-# Output as JSON (for scripting)
-o365-mail-cli mail list --json
+# Manage
+o365-cli mail mark-read <message-id>
+o365-cli mail move <message-id> --to "Archive"
+o365-cli mail trash <message-id>
+
+# Search
+o365-cli mail search --from boss@example.com --since 7d
+o365-cli mail query "subject:invoice AND from:finance"
+
+# Archive from specific senders
+o365-cli mail archive-from sender@example.com --dry-run
 ```
 
-### Sending Emails
+### Calendar
 
 ```bash
-# Simple email
-o365-mail-cli mail send \
-  --to "recipient@example.com" \
-  --subject "Test" \
-  --body "Hello World!"
+# List events
+o365-cli calendar list                    # Next 7 days
+o365-cli calendar list --days 14          # Next 14 days
+o365-cli calendar today                   # Today's events
+o365-cli calendar today --json            # JSON output
 
-# With CC and attachment
-o365-mail-cli mail send \
-  --to "recipient@example.com" \
-  --cc "copy@example.com" \
-  --subject "Document" \
-  --body "See attachment" \
-  --attach "/path/to/file.pdf"
+# View event details
+o365-cli calendar get <event-id>
 
-# Read body from file
-o365-mail-cli mail send \
-  --to "recipient@example.com" \
-  --subject "Report" \
-  --body-file "email-body.txt"
+# Create event
+o365-cli calendar create \
+  --subject "Team Meeting" \
+  --start "2026-04-01T10:00:00+02:00" \
+  --end "2026-04-01T11:00:00+02:00" \
+  --location "Room A" \
+  --attendees user@example.com,other@example.com
 
-# HTML email
-o365-mail-cli mail send \
-  --to "recipient@example.com" \
-  --subject "Newsletter" \
-  --body-file "newsletter.html" \
-  --html
+# Update event
+o365-cli calendar update <event-id> --subject "New Title"
+o365-cli calendar update <event-id> --start "2026-04-01T14:00:00+02:00"
+
+# Delete event
+o365-cli calendar delete <event-id>
+
+# Respond to invitations
+o365-cli calendar accept <event-id>
+o365-cli calendar decline <event-id> --comment "Can't make it"
+o365-cli calendar tentative <event-id>
 ```
 
-### Managing Folders
+### Folders
 
 ```bash
-# List all folders
-o365-mail-cli folders list
-
-# Create folder
-o365-mail-cli folders create "Archive/2024"
-
-# Delete folder
-o365-mail-cli folders delete "Old Folder"
+o365-cli folders list
+o365-cli folders create "Archive/2024"
+o365-cli folders delete "Old Folder"
 ```
+
+### Inbox Rules
+
+```bash
+o365-cli rules list
+o365-cli rules get <rule-id>
+o365-cli rules create --name "Auto-archive" --from-contains newsletter --move-to "Archive"
+o365-cli rules delete <rule-id>
+```
+
+### Drafts
+
+```bash
+o365-cli drafts list
+o365-cli drafts save --to user@example.com --subject "Draft" --body "WIP"
+o365-cli drafts send <draft-id>
+o365-cli drafts delete <draft-id>
+```
+
+## Permission Profiles
+
+Restrict CLI operations with YAML profiles in `~/.o365-cli/profiles/`:
+
+```yaml
+# ~/.o365-cli/profiles/read-only.yaml
+description: "Read-only access"
+enforce: false
+allow:
+  - mail.read
+  - calendar.read
+  - folders.read
+  - rules.read
+  - config.read
+  - auth
+```
+
+### Available Permissions
+
+| Permission | Description |
+|-----------|-------------|
+| `mail.read` | List and read emails |
+| `mail.send` | Send emails |
+| `mail.modify` | Mark read/unread |
+| `mail.move` | Move emails between folders |
+| `mail.delete` | Trash emails |
+| `calendar.read` | List and view events |
+| `calendar.write` | Create and update events |
+| `calendar.delete` | Delete events |
+| `calendar.respond` | Accept/decline/tentative |
+| `folders.read` | List folders |
+| `folders.manage` | Create/delete folders |
+| `rules.read` | List inbox rules |
+| `rules.manage` | Create/update/delete rules |
+| `drafts.list` | List drafts |
+| `drafts.create` | Save drafts |
+| `drafts.send` | Send drafts |
+| `drafts.delete` | Delete drafts |
+| `config.read` | View config |
+| `config.write` | Change config |
+| `auth` | Login/logout/status |
+
+Usage:
+```bash
+o365-cli --profile read-only mail list    # OK
+o365-cli --profile read-only mail send    # Denied
+```
+
+## Migration from v1.x
+
+If upgrading from `o365-mail-cli` v1.x:
+
+- The binary is now called `o365-cli` (was `o365-mail-cli`)
+- Config directory auto-migrates from `~/.o365-mail-cli/` to `~/.o365-cli/` on first run
+- Existing tokens and config are preserved
+- You may need to re-login (`o365-cli auth logout && o365-cli auth login`) for calendar access (new scope)
 
 ## Token Management
 
-The tool stores OAuth2 tokens in `~/.o365-mail-cli/token.json`:
-
-```json
-{
-  "access_token": "eyJ0eXAi...",
-  "refresh_token": "0.AAAA...",
-  "expiry": "2024-01-15T10:30:00Z",
-  "token_type": "Bearer"
-}
-```
+Tokens are stored in `~/.o365-cli/token.json` with restricted permissions (0600).
 
 - **Access Token**: Valid for ~1 hour
 - **Refresh Token**: Valid for ~90 days (automatically renewed)
 - The tool automatically refreshes when the access token expires
 
-### Security
-
-```bash
-# Token file has restricted permissions (0600)
-chmod 600 ~/.o365-mail-cli/token.json
-
-# For enhanced security: store token in system keyring
-o365-mail-cli config set token_storage keyring
-```
-
-## Scripting & Automation
-
-### Exit Codes
-
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | General error |
-| 2 | Authentication error |
-| 3 | Network error |
-| 4 | Configuration error |
-
-### JSON Output
-
-```bash
-# All emails as JSON
-o365-mail-cli mail list --json | jq '.[] | {from: .from, subject: .subject}'
-
-# Save to file
-o365-mail-cli mail list --json > emails.json
-```
-
-### Example: Count Unread Emails
-
-```bash
-#!/bin/bash
-COUNT=$(o365-mail-cli mail list --folder INBOX --unread --json | jq length)
-echo "You have $COUNT unread emails"
-```
-
-### Example: Daily Email Report
-
-```bash
-#!/bin/bash
-o365-mail-cli mail list --since "24h" --json | \
-  jq -r '.[] | "\(.date) | \(.from) | \(.subject)"' | \
-  column -t -s '|'
-```
-
-## Troubleshooting
-
-### "AADSTS700016: Application not found"
-
-The Client ID is not registered or incorrectly configured.
-→ Create your own Azure App (see Option A).
-
-### "AADSTS65001: User has not consented"
-
-The user must consent to the permissions.
-→ Device Code Flow automatically prompts for consent.
-
-### "AUTHENTICATE failed"
-
-The OAuth token is invalid or expired.
-→ Run `o365-mail-cli auth logout` then `o365-mail-cli auth login`.
-
-### Token refresh fails
-
-The refresh token has expired (after ~90 days of inactivity).
-→ Run `o365-mail-cli auth login` for new login.
-
-## Development
-
-### Project Structure
+## Project Structure
 
 ```
-o365-mail-cli/
-├── cmd/
-│   └── o365-mail-cli/
-│       └── main.go           # Entry Point
+o365-cli/
+├── cmd/o365-cli/main.go         # Entry point
 ├── internal/
-│   ├── auth/
-│   │   ├── oauth.go          # OAuth2 Device Flow
-│   │   └── token.go          # Token Storage
-│   ├── mail/
-│   │   ├── imap.go           # IMAP with XOAUTH2
-│   │   └── smtp.go           # SMTP with XOAUTH2
-│   ├── config/
-│   │   └── config.go         # Configuration
-│   └── cmd/
-│       ├── root.go           # CLI Root Command
-│       ├── auth.go           # auth Subcommands
-│       └── mail.go           # mail Subcommands
+│   ├── graph/client.go          # Generic Microsoft Graph API client
+│   ├── auth/                    # OAuth2 Device Flow & token cache
+│   ├── mail/                    # Mail operations (via Graph API)
+│   ├── calendar/                # Calendar operations (via Graph API)
+│   ├── config/                  # Configuration & migration
+│   ├── profile/                 # Permission profiles (RBAC)
+│   └── cmd/                     # CLI command definitions
+├── examples/profiles/           # Example permission profiles
 ├── go.mod
-├── go.sum
 ├── Makefile
 └── README.md
 ```
 
-### Run Tests
+## Development
 
 ```bash
-go test ./...
-```
-
-### Test with Real Account
-
-```bash
-# Test mode with logging
-O365_DEBUG=1 o365-mail-cli mail list
+go test ./...                    # Run tests
+go vet ./...                     # Static analysis
+O365_DEBUG=1 o365-cli mail list  # Debug mode
 ```
 
 ## License
 
 MIT License - see LICENSE file.
-
-## Similar Projects
-
-- [msal-go](https://github.com/AzureAD/microsoft-authentication-library-for-go) - Microsoft's official Go Auth Library
-- [go-imap](https://github.com/emersion/go-imap) - IMAP Library for Go
-- [mutt_oauth2.py](https://gitlab.com/muttmua/mutt/-/blob/master/contrib/mutt_oauth2.py) - OAuth2 for Mutt (Python)

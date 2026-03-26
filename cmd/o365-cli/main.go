@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/yourname/o365-mail-cli/internal/cmd"
+	"github.com/yourname/o365-cli/internal/cmd"
 )
 
 func main() {

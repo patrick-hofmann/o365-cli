@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/yourname/o365-mail-cli/internal/auth"
-	"github.com/yourname/o365-mail-cli/internal/config"
-	"github.com/yourname/o365-mail-cli/internal/profile"
+	"github.com/yourname/o365-cli/internal/auth"
+	"github.com/yourname/o365-cli/internal/config"
+	"github.com/yourname/o365-cli/internal/profile"
 )
 
 var logoutAll bool
@@ -41,9 +41,9 @@ Without argument, logs out the active account.
 With --all, logs out all accounts.
 
 Examples:
-  o365-mail-cli auth logout
-  o365-mail-cli auth logout user@example.com
-  o365-mail-cli auth logout --all`,
+  o365-cli auth logout
+  o365-cli auth logout user@example.com
+  o365-cli auth logout --all`,
 	Annotations: map[string]string{profile.AnnotationKey: "auth"},
 	Args:        cobra.MaximumNArgs(1),
 	RunE:        runLogout,
@@ -72,7 +72,7 @@ The selected account is used as default when no --account flag
 or O365_ACCOUNT environment variable is set.
 
 Examples:
-  o365-mail-cli auth switch user@example.com`,
+  o365-cli auth switch user@example.com`,
 	Annotations: map[string]string{profile.AnnotationKey: "auth"},
 	Args:        cobra.ExactArgs(1),
 	RunE:        runSwitch,
@@ -89,8 +89,8 @@ by showing the actual error from token refresh attempts.
 Without argument, debugs the active account.
 
 Examples:
-  o365-mail-cli auth debug
-  o365-mail-cli auth debug user@example.com`,
+  o365-cli auth debug
+  o365-cli auth debug user@example.com`,
 	Annotations: map[string]string{profile.AnnotationKey: "auth"},
 	Args:        cobra.MaximumNArgs(1),
 	RunE:        runDebug,

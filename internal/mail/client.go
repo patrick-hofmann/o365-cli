@@ -1,37 +1,26 @@
 package mail
 
 import (
-	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/yourname/o365-cli/internal/graph"
 )
 
-const (
-	GraphAPIBaseURL = "https://graph.microsoft.com/v1.0"
-)
-
-// GraphClient for Microsoft Graph API operations
-type GraphClient struct {
-	httpClient  *http.Client
-	accessToken string
+// Client wraps the generic Graph client with mail-specific operations.
+type Client struct {
+	*graph.Client
 }
 
-// NewGraphClient creates a new Graph API client
-func NewGraphClient(accessToken string) *GraphClient {
-	return &GraphClient{
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
-		accessToken: accessToken,
-	}
+// NewClient creates a new mail client.
+func NewClient(accessToken string) *Client {
+	return &Client{Client: graph.NewClient(accessToken)}
 }
 
 // Email represents an email message
@@ -66,30 +55,20 @@ type SendOptions struct {
 	HTML    bool
 }
 
-
 // GraphMessageResponse represents a message from Graph API
 type GraphMessageResponse struct {
-	ID                 string                `json:"id"`
-	Subject            string                `json:"subject"`
-	BodyPreview        string                `json:"bodyPreview"`
-	Body               GraphBodyResponse     `json:"body"`
-	ReceivedDateTime   string                `json:"receivedDateTime"`
-	IsRead             bool                  `json:"isRead"`
-	From               *GraphEmailAddressWrapper `json:"from"`
-	ToRecipients       []GraphEmailAddressWrapper `json:"toRecipients"`
-	CcRecipients       []GraphEmailAddressWrapper `json:"ccRecipients"`
-	HasAttachments     bool                  `json:"hasAttachments"`
-	InternetMessageId  string                `json:"internetMessageId"`
-	ParentFolderId     string                `json:"parentFolderId"`
-}
-
-type GraphBodyResponse struct {
-	ContentType string `json:"contentType"`
-	Content     string `json:"content"`
-}
-
-type GraphEmailAddressWrapper struct {
-	EmailAddress GraphEmailAddress `json:"emailAddress"`
+	ID                string                      `json:"id"`
+	Subject           string                      `json:"subject"`
+	BodyPreview       string                      `json:"bodyPreview"`
+	Body              graph.GraphBodyResponse      `json:"body"`
+	ReceivedDateTime  string                      `json:"receivedDateTime"`
+	IsRead            bool                        `json:"isRead"`
+	From              *graph.GraphEmailAddressWrapper `json:"from"`
+	ToRecipients      []graph.GraphEmailAddressWrapper `json:"toRecipients"`
+	CcRecipients      []graph.GraphEmailAddressWrapper `json:"ccRecipients"`
+	HasAttachments    bool                        `json:"hasAttachments"`
+	InternetMessageId string                      `json:"internetMessageId"`
+	ParentFolderId    string                      `json:"parentFolderId"`
 }
 
 // GraphMessagesResponse represents the list response
@@ -116,11 +95,11 @@ type GraphFoldersResponse struct {
 
 // GraphAttachmentResponse represents an attachment
 type GraphAttachmentResponse struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	ContentType   string `json:"contentType"`
-	Size          int    `json:"size"`
-	ContentBytes  string `json:"contentBytes"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	ContentType  string `json:"contentType"`
+	Size         int    `json:"size"`
+	ContentBytes string `json:"contentBytes"`
 }
 
 // GraphAttachmentsResponse represents the attachments list response
@@ -130,18 +109,32 @@ type GraphAttachmentsResponse struct {
 
 // Folder represents a mail folder
 type Folder struct {
-	ID              string   `json:"id"`
-	Name            string   `json:"name"`
-	UnreadCount     int      `json:"unread_count"`
-	TotalCount      int      `json:"total_count"`
-	ChildFolderCount int     `json:"child_folder_count"`
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	UnreadCount      int    `json:"unread_count"`
+	TotalCount       int    `json:"total_count"`
+	ChildFolderCount int    `json:"child_folder_count"`
+}
+
+// GraphMessage for sending
+type GraphMessage struct {
+	Subject       string                        `json:"subject"`
+	Body          GraphBody                     `json:"body"`
+	ToRecipients  []graph.GraphEmailAddressWrapper `json:"toRecipients"`
+	CcRecipients  []graph.GraphEmailAddressWrapper `json:"ccRecipients,omitempty"`
+	BccRecipients []graph.GraphEmailAddressWrapper `json:"bccRecipients,omitempty"`
+}
+
+// GraphBody represents the email body
+type GraphBody struct {
+	ContentType string `json:"contentType"`
+	Content     string `json:"content"`
 }
 
 // ListEmails lists emails from a folder
-func (c *GraphClient) ListEmails(folderID string, limit int, unreadOnly bool) ([]Email, error) {
-	endpoint := fmt.Sprintf("%s/me/mailFolders/%s/messages", GraphAPIBaseURL, url.PathEscape(folderID))
+func (c *Client) ListEmails(folderID string, limit int, unreadOnly bool) ([]Email, error) {
+	endpoint := fmt.Sprintf("%s/me/mailFolders/%s/messages", graph.GraphAPIBaseURL, url.PathEscape(folderID))
 
-	// Build query parameters
 	pageSize := limit
 	if pageSize > 100 {
 		pageSize = 100
@@ -159,7 +152,7 @@ func (c *GraphClient) ListEmails(folderID string, limit int, unreadOnly bool) ([
 	currentEndpoint := endpoint + "?" + params.Encode()
 
 	for currentEndpoint != "" {
-		resp, err := c.doRequest("GET", currentEndpoint, nil)
+		resp, err := c.DoRequest("GET", currentEndpoint, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -183,13 +176,13 @@ func (c *GraphClient) ListEmails(folderID string, limit int, unreadOnly bool) ([
 }
 
 // GetEmail fetches a single email with full body
-func (c *GraphClient) GetEmail(folderID string, messageID string) (*Email, error) {
-	endpoint := fmt.Sprintf("%s/me/mailFolders/%s/messages/%s", GraphAPIBaseURL, url.PathEscape(folderID), messageID)
+func (c *Client) GetEmail(folderID string, messageID string) (*Email, error) {
+	endpoint := fmt.Sprintf("%s/me/mailFolders/%s/messages/%s", graph.GraphAPIBaseURL, url.PathEscape(folderID), messageID)
 	params := url.Values{}
 	params.Set("$select", "id,subject,body,receivedDateTime,isRead,from,toRecipients,ccRecipients,hasAttachments,internetMessageId")
 	endpoint += "?" + params.Encode()
 
-	resp, err := c.doRequest("GET", endpoint, nil)
+	resp, err := c.DoRequest("GET", endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -206,66 +199,63 @@ func (c *GraphClient) GetEmail(folderID string, messageID string) (*Email, error
 }
 
 // MarkAsRead marks an email as read
-func (c *GraphClient) MarkAsRead(folderID string, messageID string) error {
-	endpoint := fmt.Sprintf("%s/me/mailFolders/%s/messages/%s", GraphAPIBaseURL, url.PathEscape(folderID), messageID)
+func (c *Client) MarkAsRead(folderID string, messageID string) error {
+	endpoint := fmt.Sprintf("%s/me/mailFolders/%s/messages/%s", graph.GraphAPIBaseURL, url.PathEscape(folderID), messageID)
 	body := map[string]interface{}{"isRead": true}
 
 	jsonBody, _ := json.Marshal(body)
-	_, err := c.doRequest("PATCH", endpoint, jsonBody)
+	_, err := c.DoRequest("PATCH", endpoint, jsonBody)
 	return err
 }
 
 // MarkAsUnread marks an email as unread
-func (c *GraphClient) MarkAsUnread(folderID string, messageID string) error {
-	endpoint := fmt.Sprintf("%s/me/mailFolders/%s/messages/%s", GraphAPIBaseURL, url.PathEscape(folderID), messageID)
+func (c *Client) MarkAsUnread(folderID string, messageID string) error {
+	endpoint := fmt.Sprintf("%s/me/mailFolders/%s/messages/%s", graph.GraphAPIBaseURL, url.PathEscape(folderID), messageID)
 	body := map[string]interface{}{"isRead": false}
 
 	jsonBody, _ := json.Marshal(body)
-	_, err := c.doRequest("PATCH", endpoint, jsonBody)
+	_, err := c.DoRequest("PATCH", endpoint, jsonBody)
 	return err
 }
 
 // MoveEmail moves an email to another folder
-func (c *GraphClient) MoveEmail(folderID string, messageID string, destinationFolderID string) error {
-	endpoint := fmt.Sprintf("%s/me/mailFolders/%s/messages/%s/move", GraphAPIBaseURL, url.PathEscape(folderID), messageID)
+func (c *Client) MoveEmail(folderID string, messageID string, destinationFolderID string) error {
+	endpoint := fmt.Sprintf("%s/me/mailFolders/%s/messages/%s/move", graph.GraphAPIBaseURL, url.PathEscape(folderID), messageID)
 	body := map[string]string{"destinationId": destinationFolderID}
 
 	jsonBody, _ := json.Marshal(body)
-	_, err := c.doRequest("POST", endpoint, jsonBody)
+	_, err := c.DoRequest("POST", endpoint, jsonBody)
 	return err
 }
 
 // TrashEmail moves an email to the deleted items folder
-func (c *GraphClient) TrashEmail(folderID string, messageID string) error {
+func (c *Client) TrashEmail(folderID string, messageID string) error {
 	return c.MoveEmail(folderID, messageID, "deleteditems")
 }
 
 // ListEmailsFromSenders lists all emails from specific sender addresses (exact match)
-// It handles pagination to return all matching emails
-// Due to Graph API limitations on complex filters, this fetches all emails and filters in code
-func (c *GraphClient) ListEmailsFromSenders(folderID string, senderAddresses []string, limit int) ([]Email, error) {
+func (c *Client) ListEmailsFromSenders(folderID string, senderAddresses []string, limit int) ([]Email, error) {
 	if len(senderAddresses) == 0 {
 		return nil, fmt.Errorf("at least one sender address required")
 	}
 
-	// Normalize addresses to lowercase for comparison
 	normalizedAddrs := make(map[string]bool)
 	for _, addr := range senderAddresses {
 		normalizedAddrs[strings.ToLower(addr)] = true
 	}
 
 	var allEmails []Email
-	endpoint := fmt.Sprintf("%s/me/mailFolders/%s/messages", GraphAPIBaseURL, url.PathEscape(folderID))
+	endpoint := fmt.Sprintf("%s/me/mailFolders/%s/messages", graph.GraphAPIBaseURL, url.PathEscape(folderID))
 
 	params := url.Values{}
-	params.Set("$top", "100") // Fetch in batches of 100
+	params.Set("$top", "100")
 	params.Set("$orderby", "receivedDateTime desc")
 	params.Set("$select", "id,subject,bodyPreview,receivedDateTime,isRead,from,toRecipients,hasAttachments,internetMessageId")
 
 	currentEndpoint := endpoint + "?" + params.Encode()
 
 	for currentEndpoint != "" {
-		resp, err := c.doRequest("GET", currentEndpoint, nil)
+		resp, err := c.DoRequest("GET", currentEndpoint, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -276,7 +266,6 @@ func (c *GraphClient) ListEmailsFromSenders(folderID string, senderAddresses []s
 		}
 
 		for _, msg := range result.Value {
-			// Exact match check: extract email address and compare
 			if msg.From != nil {
 				fromAddr := strings.ToLower(msg.From.EmailAddress.Address)
 				if normalizedAddrs[fromAddr] {
@@ -295,8 +284,8 @@ func (c *GraphClient) ListEmailsFromSenders(folderID string, senderAddresses []s
 }
 
 // SearchEmails searches emails by criteria
-func (c *GraphClient) SearchEmails(folderID string, from, subject string, since time.Time, limit int) ([]Email, error) {
-	endpoint := fmt.Sprintf("%s/me/mailFolders/%s/messages", GraphAPIBaseURL, url.PathEscape(folderID))
+func (c *Client) SearchEmails(folderID string, from, subject string, since time.Time, limit int) ([]Email, error) {
+	endpoint := fmt.Sprintf("%s/me/mailFolders/%s/messages", graph.GraphAPIBaseURL, url.PathEscape(folderID))
 
 	pageSize := limit
 	if pageSize > 100 {
@@ -307,7 +296,6 @@ func (c *GraphClient) SearchEmails(folderID string, from, subject string, since 
 	params.Set("$orderby", "receivedDateTime desc")
 	params.Set("$select", "id,subject,bodyPreview,receivedDateTime,isRead,from,toRecipients,hasAttachments,internetMessageId")
 
-	// Build filter
 	var filters []string
 	if from != "" {
 		filters = append(filters, fmt.Sprintf("contains(from/emailAddress/address,'%s')", from))
@@ -327,7 +315,7 @@ func (c *GraphClient) SearchEmails(folderID string, from, subject string, since 
 	currentEndpoint := endpoint + "?" + params.Encode()
 
 	for currentEndpoint != "" {
-		resp, err := c.doRequest("GET", currentEndpoint, nil)
+		resp, err := c.DoRequest("GET", currentEndpoint, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -351,12 +339,12 @@ func (c *GraphClient) SearchEmails(folderID string, from, subject string, since 
 }
 
 // SearchEmailsKQL searches emails using KQL (Keyword Query Language) via the $search parameter
-func (c *GraphClient) SearchEmailsKQL(folderID, query string, limit int) ([]Email, error) {
+func (c *Client) SearchEmailsKQL(folderID, query string, limit int) ([]Email, error) {
 	var endpoint string
 	if folderID == "" {
-		endpoint = fmt.Sprintf("%s/me/messages", GraphAPIBaseURL)
+		endpoint = fmt.Sprintf("%s/me/messages", graph.GraphAPIBaseURL)
 	} else {
-		endpoint = fmt.Sprintf("%s/me/mailFolders/%s/messages", GraphAPIBaseURL, url.PathEscape(folderID))
+		endpoint = fmt.Sprintf("%s/me/mailFolders/%s/messages", graph.GraphAPIBaseURL, url.PathEscape(folderID))
 	}
 
 	pageSize := limit
@@ -372,7 +360,7 @@ func (c *GraphClient) SearchEmailsKQL(folderID, query string, limit int) ([]Emai
 	currentEndpoint := endpoint + "?" + params.Encode()
 
 	for currentEndpoint != "" {
-		resp, err := c.doRequest("GET", currentEndpoint, nil)
+		resp, err := c.DoRequest("GET", currentEndpoint, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -396,10 +384,10 @@ func (c *GraphClient) SearchEmailsKQL(folderID, query string, limit int) ([]Emai
 }
 
 // GetAttachments downloads attachments from an email
-func (c *GraphClient) GetAttachments(folderID string, messageID string, saveDir string) ([]Attachment, error) {
-	endpoint := fmt.Sprintf("%s/me/mailFolders/%s/messages/%s/attachments", GraphAPIBaseURL, url.PathEscape(folderID), messageID)
+func (c *Client) GetAttachments(folderID string, messageID string, saveDir string) ([]Attachment, error) {
+	endpoint := fmt.Sprintf("%s/me/mailFolders/%s/messages/%s/attachments", graph.GraphAPIBaseURL, url.PathEscape(folderID), messageID)
 
-	resp, err := c.doRequest("GET", endpoint, nil)
+	resp, err := c.DoRequest("GET", endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -441,13 +429,13 @@ func (c *GraphClient) GetAttachments(folderID string, messageID string, saveDir 
 }
 
 // ListFolders lists all mail folders
-func (c *GraphClient) ListFolders() ([]Folder, error) {
-	endpoint := fmt.Sprintf("%s/me/mailFolders?$top=100", GraphAPIBaseURL)
+func (c *Client) ListFolders() ([]Folder, error) {
+	endpoint := fmt.Sprintf("%s/me/mailFolders?$top=100", graph.GraphAPIBaseURL)
 
 	var allFolders []Folder
 
 	for endpoint != "" {
-		resp, err := c.doRequest("GET", endpoint, nil)
+		resp, err := c.DoRequest("GET", endpoint, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -459,14 +447,13 @@ func (c *GraphClient) ListFolders() ([]Folder, error) {
 
 		for _, f := range result.Value {
 			allFolders = append(allFolders, Folder{
-				ID:              f.ID,
-				Name:            f.DisplayName,
-				UnreadCount:     f.UnreadItemCount,
-				TotalCount:      f.TotalItemCount,
+				ID:               f.ID,
+				Name:             f.DisplayName,
+				UnreadCount:      f.UnreadItemCount,
+				TotalCount:       f.TotalItemCount,
 				ChildFolderCount: f.ChildFolderCount,
 			})
 
-			// Fetch child folders if any
 			if f.ChildFolderCount > 0 {
 				children, err := c.listChildFolders(f.ID, f.DisplayName)
 				if err == nil {
@@ -482,10 +469,10 @@ func (c *GraphClient) ListFolders() ([]Folder, error) {
 }
 
 // listChildFolders recursively lists child folders
-func (c *GraphClient) listChildFolders(parentID, parentPath string) ([]Folder, error) {
-	endpoint := fmt.Sprintf("%s/me/mailFolders/%s/childFolders", GraphAPIBaseURL, parentID)
+func (c *Client) listChildFolders(parentID, parentPath string) ([]Folder, error) {
+	endpoint := fmt.Sprintf("%s/me/mailFolders/%s/childFolders", graph.GraphAPIBaseURL, parentID)
 
-	resp, err := c.doRequest("GET", endpoint, nil)
+	resp, err := c.DoRequest("GET", endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -499,10 +486,10 @@ func (c *GraphClient) listChildFolders(parentID, parentPath string) ([]Folder, e
 	for _, f := range result.Value {
 		fullPath := parentPath + "/" + f.DisplayName
 		folders = append(folders, Folder{
-			ID:              f.ID,
-			Name:            fullPath,
-			UnreadCount:     f.UnreadItemCount,
-			TotalCount:      f.TotalItemCount,
+			ID:               f.ID,
+			Name:             fullPath,
+			UnreadCount:      f.UnreadItemCount,
+			TotalCount:       f.TotalItemCount,
 			ChildFolderCount: f.ChildFolderCount,
 		})
 
@@ -518,8 +505,7 @@ func (c *GraphClient) listChildFolders(parentID, parentPath string) ([]Folder, e
 }
 
 // GetFolderByName finds a folder by name and returns its ID
-func (c *GraphClient) GetFolderByName(name string) (string, error) {
-	// Well-known folder names that can be used directly
+func (c *Client) GetFolderByName(name string) (string, error) {
 	wellKnown := map[string]string{
 		"inbox":        "inbox",
 		"drafts":       "drafts",
@@ -534,7 +520,6 @@ func (c *GraphClient) GetFolderByName(name string) (string, error) {
 		return id, nil
 	}
 
-	// Search in all folders
 	folders, err := c.ListFolders()
 	if err != nil {
 		return "", err
@@ -550,48 +535,48 @@ func (c *GraphClient) GetFolderByName(name string) (string, error) {
 }
 
 // CreateFolder creates a new mail folder
-func (c *GraphClient) CreateFolder(name string, parentFolderID string) error {
+func (c *Client) CreateFolder(name string, parentFolderID string) error {
 	var endpoint string
 	if parentFolderID != "" {
-		endpoint = fmt.Sprintf("%s/me/mailFolders/%s/childFolders", GraphAPIBaseURL, parentFolderID)
+		endpoint = fmt.Sprintf("%s/me/mailFolders/%s/childFolders", graph.GraphAPIBaseURL, parentFolderID)
 	} else {
-		endpoint = fmt.Sprintf("%s/me/mailFolders", GraphAPIBaseURL)
+		endpoint = fmt.Sprintf("%s/me/mailFolders", graph.GraphAPIBaseURL)
 	}
 
 	body := map[string]string{"displayName": name}
 	jsonBody, _ := json.Marshal(body)
 
-	_, err := c.doRequest("POST", endpoint, jsonBody)
+	_, err := c.DoRequest("POST", endpoint, jsonBody)
 	return err
 }
 
 // DeleteFolder deletes a mail folder
-func (c *GraphClient) DeleteFolder(folderID string) error {
-	endpoint := fmt.Sprintf("%s/me/mailFolders/%s", GraphAPIBaseURL, folderID)
-	_, err := c.doRequest("DELETE", endpoint, nil)
+func (c *Client) DeleteFolder(folderID string) error {
+	endpoint := fmt.Sprintf("%s/me/mailFolders/%s", graph.GraphAPIBaseURL, folderID)
+	_, err := c.DoRequest("DELETE", endpoint, nil)
 	return err
 }
 
 // Send sends an email
-func (c *GraphClient) Send(opts SendOptions) error {
-	toRecipients := make([]GraphEmailAddressWrapper, len(opts.To))
+func (c *Client) Send(opts SendOptions) error {
+	toRecipients := make([]graph.GraphEmailAddressWrapper, len(opts.To))
 	for i, to := range opts.To {
-		toRecipients[i] = GraphEmailAddressWrapper{
-			EmailAddress: GraphEmailAddress{Address: ParseEmail(to)},
+		toRecipients[i] = graph.GraphEmailAddressWrapper{
+			EmailAddress: graph.GraphEmailAddress{Address: graph.ParseEmail(to)},
 		}
 	}
 
-	ccRecipients := make([]GraphEmailAddressWrapper, len(opts.Cc))
+	ccRecipients := make([]graph.GraphEmailAddressWrapper, len(opts.Cc))
 	for i, cc := range opts.Cc {
-		ccRecipients[i] = GraphEmailAddressWrapper{
-			EmailAddress: GraphEmailAddress{Address: ParseEmail(cc)},
+		ccRecipients[i] = graph.GraphEmailAddressWrapper{
+			EmailAddress: graph.GraphEmailAddress{Address: graph.ParseEmail(cc)},
 		}
 	}
 
-	bccRecipients := make([]GraphEmailAddressWrapper, len(opts.Bcc))
+	bccRecipients := make([]graph.GraphEmailAddressWrapper, len(opts.Bcc))
 	for i, bcc := range opts.Bcc {
-		bccRecipients[i] = GraphEmailAddressWrapper{
-			EmailAddress: GraphEmailAddress{Address: ParseEmail(bcc)},
+		bccRecipients[i] = graph.GraphEmailAddressWrapper{
+			EmailAddress: graph.GraphEmailAddress{Address: graph.ParseEmail(bcc)},
 		}
 	}
 
@@ -626,17 +611,17 @@ func (c *GraphClient) Send(opts SendOptions) error {
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	_, err = c.doRequest("POST", GraphAPIBaseURL+"/me/sendMail", jsonBody)
+	_, err = c.DoRequest("POST", graph.GraphAPIBaseURL+"/me/sendMail", jsonBody)
 	return err
 }
 
 // Reply sends a reply using native Graph API
-func (c *GraphClient) Reply(messageID string, comment string, replyAll bool) error {
+func (c *Client) Reply(messageID string, comment string, replyAll bool) error {
 	action := "reply"
 	if replyAll {
 		action = "replyAll"
 	}
-	endpoint := fmt.Sprintf("%s/me/messages/%s/%s", GraphAPIBaseURL, messageID, action)
+	endpoint := fmt.Sprintf("%s/me/messages/%s/%s", graph.GraphAPIBaseURL, messageID, action)
 
 	body := map[string]interface{}{}
 	if comment != "" {
@@ -644,18 +629,18 @@ func (c *GraphClient) Reply(messageID string, comment string, replyAll bool) err
 	}
 
 	jsonBody, _ := json.Marshal(body)
-	_, err := c.doRequest("POST", endpoint, jsonBody)
+	_, err := c.DoRequest("POST", endpoint, jsonBody)
 	return err
 }
 
 // Forward forwards an email using native Graph API
-func (c *GraphClient) Forward(messageID string, to []string, comment string) error {
-	endpoint := fmt.Sprintf("%s/me/messages/%s/forward", GraphAPIBaseURL, messageID)
+func (c *Client) Forward(messageID string, to []string, comment string) error {
+	endpoint := fmt.Sprintf("%s/me/messages/%s/forward", graph.GraphAPIBaseURL, messageID)
 
-	toRecipients := make([]GraphEmailAddressWrapper, len(to))
+	toRecipients := make([]graph.GraphEmailAddressWrapper, len(to))
 	for i, addr := range to {
-		toRecipients[i] = GraphEmailAddressWrapper{
-			EmailAddress: GraphEmailAddress{Address: ParseEmail(addr)},
+		toRecipients[i] = graph.GraphEmailAddressWrapper{
+			EmailAddress: graph.GraphEmailAddress{Address: graph.ParseEmail(addr)},
 		}
 	}
 
@@ -667,23 +652,23 @@ func (c *GraphClient) Forward(messageID string, to []string, comment string) err
 	}
 
 	jsonBody, _ := json.Marshal(body)
-	_, err := c.doRequest("POST", endpoint, jsonBody)
+	_, err := c.DoRequest("POST", endpoint, jsonBody)
 	return err
 }
 
 // SaveDraft saves an email as draft and returns the draft ID
-func (c *GraphClient) SaveDraft(to, cc []string, subject, body string, html bool) (string, error) {
-	toRecipients := make([]GraphEmailAddressWrapper, len(to))
+func (c *Client) SaveDraft(to, cc []string, subject, body string, html bool) (string, error) {
+	toRecipients := make([]graph.GraphEmailAddressWrapper, len(to))
 	for i, addr := range to {
-		toRecipients[i] = GraphEmailAddressWrapper{
-			EmailAddress: GraphEmailAddress{Address: ParseEmail(addr)},
+		toRecipients[i] = graph.GraphEmailAddressWrapper{
+			EmailAddress: graph.GraphEmailAddress{Address: graph.ParseEmail(addr)},
 		}
 	}
 
-	ccRecipients := make([]GraphEmailAddressWrapper, len(cc))
+	ccRecipients := make([]graph.GraphEmailAddressWrapper, len(cc))
 	for i, addr := range cc {
-		ccRecipients[i] = GraphEmailAddressWrapper{
-			EmailAddress: GraphEmailAddress{Address: ParseEmail(addr)},
+		ccRecipients[i] = graph.GraphEmailAddressWrapper{
+			EmailAddress: graph.GraphEmailAddress{Address: graph.ParseEmail(addr)},
 		}
 	}
 
@@ -710,7 +695,7 @@ func (c *GraphClient) SaveDraft(to, cc []string, subject, body string, html bool
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	resp, err := c.doRequest("POST", GraphAPIBaseURL+"/me/messages", jsonBody)
+	resp, err := c.DoRequest("POST", graph.GraphAPIBaseURL+"/me/messages", jsonBody)
 	if err != nil {
 		return "", err
 	}
@@ -726,54 +711,22 @@ func (c *GraphClient) SaveDraft(to, cc []string, subject, body string, html bool
 }
 
 // ListDrafts lists draft emails
-func (c *GraphClient) ListDrafts(limit int) ([]Email, error) {
+func (c *Client) ListDrafts(limit int) ([]Email, error) {
 	return c.ListEmails("drafts", limit, false)
 }
 
 // SendDraft sends a draft and deletes it
-func (c *GraphClient) SendDraft(messageID string) error {
-	endpoint := fmt.Sprintf("%s/me/messages/%s/send", GraphAPIBaseURL, messageID)
-	_, err := c.doRequest("POST", endpoint, nil)
+func (c *Client) SendDraft(messageID string) error {
+	endpoint := fmt.Sprintf("%s/me/messages/%s/send", graph.GraphAPIBaseURL, messageID)
+	_, err := c.DoRequest("POST", endpoint, nil)
 	return err
 }
 
 // DeleteDraft deletes a draft
-func (c *GraphClient) DeleteDraft(messageID string) error {
-	endpoint := fmt.Sprintf("%s/me/messages/%s", GraphAPIBaseURL, messageID)
-	_, err := c.doRequest("DELETE", endpoint, nil)
+func (c *Client) DeleteDraft(messageID string) error {
+	endpoint := fmt.Sprintf("%s/me/messages/%s", graph.GraphAPIBaseURL, messageID)
+	_, err := c.DoRequest("DELETE", endpoint, nil)
 	return err
-}
-
-// doRequest performs an HTTP request to Graph API
-func (c *GraphClient) doRequest(method, endpoint string, body []byte) ([]byte, error) {
-	var req *http.Request
-	var err error
-
-	if body != nil {
-		req, err = http.NewRequest(method, endpoint, bytes.NewBuffer(body))
-	} else {
-		req, err = http.NewRequest(method, endpoint, nil)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+c.accessToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, _ := io.ReadAll(resp.Body)
-
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("Graph API error (status %d): %s", resp.StatusCode, string(respBody))
-	}
-
-	return respBody, nil
 }
 
 // graphMessageToEmail converts a Graph API message to our Email struct
@@ -790,53 +743,12 @@ func graphMessageToEmail(msg GraphMessageResponse) Email {
 	}
 
 	if msg.From != nil {
-		email.From = formatGraphAddress(msg.From.EmailAddress)
+		email.From = graph.FormatGraphAddress(msg.From.EmailAddress)
 	}
 
 	for _, to := range msg.ToRecipients {
-		email.To = append(email.To, formatGraphAddress(to.EmailAddress))
+		email.To = append(email.To, graph.FormatGraphAddress(to.EmailAddress))
 	}
 
 	return email
 }
-
-// formatGraphAddress formats a Graph API email address
-func formatGraphAddress(addr GraphEmailAddress) string {
-	if addr.Name != "" {
-		return fmt.Sprintf("%s <%s>", addr.Name, addr.Address)
-	}
-	return addr.Address
-}
-
-// GraphMessage for sending
-type GraphMessage struct {
-	Subject       string                   `json:"subject"`
-	Body          GraphBody                `json:"body"`
-	ToRecipients  []GraphEmailAddressWrapper `json:"toRecipients"`
-	CcRecipients  []GraphEmailAddressWrapper `json:"ccRecipients,omitempty"`
-	BccRecipients []GraphEmailAddressWrapper `json:"bccRecipients,omitempty"`
-}
-
-// GraphBody represents the email body
-type GraphBody struct {
-	ContentType string `json:"contentType"`
-	Content     string `json:"content"`
-}
-
-// GraphEmailAddress represents an email address
-type GraphEmailAddress struct {
-	Address string `json:"address"`
-	Name    string `json:"name,omitempty"`
-}
-
-// ParseEmail extracts an email address from a string like "Name <email@example.com>"
-func ParseEmail(addr string) string {
-	addr = strings.TrimSpace(addr)
-	if idx := strings.Index(addr, "<"); idx != -1 {
-		if end := strings.Index(addr, ">"); end != -1 {
-			return addr[idx+1 : end]
-		}
-	}
-	return addr
-}
-

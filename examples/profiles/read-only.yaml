@@ -1,9 +1,10 @@
-# Read-only profile: can only read emails, folders, rules, and config.
+# Read-only profile: can only read emails, calendar, folders, rules, and config.
 # No sending, modifying, moving, or deleting.
 description: "Read-only access"
 enforce: false
 allow:
   - mail.read
+  - calendar.read
   - folders.read
   - rules.read
   - config.read

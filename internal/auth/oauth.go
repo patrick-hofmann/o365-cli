@@ -16,17 +16,18 @@ func getCacheFileInfo(path string) (os.FileInfo, error) {
 }
 
 const (
-	// DefaultClientID is the public client ID of the o365-mail-cli Azure App
+	// DefaultClientID is the public client ID of the o365-cli Azure App
 	DefaultClientID = "5aa6d895-1072-41c4-beb6-d8e3fdf0e7cd"
 
 	// Authority is Microsoft's common tenant for multi-tenant apps
 	Authority = "https://login.microsoftonline.com/common"
 )
 
-// Scopes for Microsoft Graph API mail access
+// Scopes for Microsoft Graph API access
 var Scopes = []string{
 	"https://graph.microsoft.com/Mail.ReadWrite",
 	"https://graph.microsoft.com/Mail.Send",
+	"https://graph.microsoft.com/Calendars.ReadWrite",
 	// offline_access is automatically requested by MSAL
 }
 

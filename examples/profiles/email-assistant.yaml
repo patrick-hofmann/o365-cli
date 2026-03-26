@@ -1,6 +1,7 @@
-# Email assistant profile: can read, modify status, create drafts, but not send or delete.
+# Email & calendar assistant profile: can read mail/calendar, modify status, create drafts.
+# Cannot send, delete, or create calendar events.
 # Use enforce: true to prevent the agent from bypassing this profile.
-description: "Email assistant with restricted access"
+description: "Email & calendar assistant with restricted access"
 enforce: true
 allow:
   - mail.read
@@ -9,5 +10,7 @@ allow:
   - drafts.list
   - folders.read
   - rules.read
+  - calendar.read
+  - calendar.respond
   - config.read
   - auth

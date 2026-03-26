@@ -27,7 +27,7 @@ type TokenCache struct {
 func NewTokenCache(cacheDir string) *TokenCache {
 	if cacheDir == "" {
 		home, _ := os.UserHomeDir()
-		cacheDir = filepath.Join(home, ".o365-mail-cli")
+		cacheDir = filepath.Join(home, ".o365-cli")
 	}
 
 	tc := &TokenCache{
