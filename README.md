@@ -297,6 +297,25 @@ go vet ./...                     # Static analysis
 O365_DEBUG=1 o365-cli mail list  # Debug mode
 ```
 
+## Releasing
+
+Releases are fully automated via GitHub Actions. To create a new release:
+
+```bash
+git tag v2.2.0
+git push origin v2.2.0
+```
+
+This automatically:
+1. Builds binaries for all platforms (macOS, Linux, Windows)
+2. Creates a GitHub Release with the binaries attached
+3. Updates the Homebrew formula in [patrick-hofmann/homebrew-tap](https://github.com/patrick-hofmann/homebrew-tap)
+
+Users can then upgrade via:
+```bash
+brew upgrade o365-cli
+```
+
 ## License
 
 MIT License - see LICENSE file.
