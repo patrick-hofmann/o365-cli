@@ -105,7 +105,10 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to start device code flow: %w", err)
 	}
 
-	// Show instructions
+	// Show instructions (agent-friendly plain text + visual box for humans)
+	fmt.Println()
+	fmt.Printf("Login URL:  %s\n", deviceCode.VerificationURL)
+	fmt.Printf("Login Code: %s\n", deviceCode.UserCode)
 	fmt.Println()
 	fmt.Println("╔════════════════════════════════════════════════════════════╗")
 	fmt.Println("║  To sign in, open this URL in your browser:                ║")
