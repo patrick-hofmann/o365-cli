@@ -98,47 +98,99 @@ func init() {
 	rootCmd.AddCommand(versionCmd)
 }
 
-// getActiveAccount returns the active account
-// Priority: 1. --account flag, 2. O365_ACCOUNT env, 3. current_account from config
-func getActiveAccount() string {
-	// 1. --account flag
+// getExplicitAccount returns the explicitly specified account, if any.
+// Returns empty string if no account was specified via --account flag or O365_ACCOUNT env.
+func getExplicitAccount() string {
 	if accountFlag != "" {
 		return accountFlag
 	}
-
-	// 2. O365_ACCOUNT environment variable
 	if envAccount := os.Getenv("O365_ACCOUNT"); envAccount != "" {
 		return envAccount
 	}
-
-	// 3. current_account from config
-	if cfg != nil && cfg.CurrentAccount != "" {
-		return cfg.CurrentAccount
-	}
-
-	// Fallback: First account from accounts.yaml
-	return config.GetFirstAccount()
+	return ""
 }
 
-// getAccessToken obtains an access token for the active account.
-// Shared by mail and calendar client factories.
-func getAccessToken(ctx context.Context) (string, error) {
-	account := getActiveAccount()
-	if account == "" {
-		return "", fmt.Errorf("no account configured. Please run 'auth login'")
+// requireAccount resolves which account to use for write operations.
+// If --account is set, uses that. If only 1 account is logged in, uses that.
+// If multiple accounts and no --account, returns an error.
+func requireAccount(ctx context.Context) (string, error) {
+	// Explicit --account flag or O365_ACCOUNT env
+	if accountFlag != "" {
+		return accountFlag, nil
+	}
+	if envAccount := os.Getenv("O365_ACCOUNT"); envAccount != "" {
+		return envAccount, nil
 	}
 
+	// Check how many accounts are logged in
 	oauthClient, err := auth.NewOAuthClient(cfg.ClientID, cfg.CacheDir)
 	if err != nil {
 		return "", err
 	}
 
-	accessToken, err := oauthClient.GetAccessToken(ctx, account)
+	accounts, err := oauthClient.ListAccounts(ctx)
 	if err != nil {
-		return "", fmt.Errorf("not logged in: %w", err)
+		return "", fmt.Errorf("failed to list accounts: %w", err)
+	}
+
+	switch len(accounts) {
+	case 0:
+		return "", fmt.Errorf("no accounts configured. Please run 'auth login'")
+	case 1:
+		return accounts[0], nil
+	default:
+		return "", fmt.Errorf("multiple accounts logged in, --account required. Use 'auth list' to see accounts")
+	}
+}
+
+// getAccessTokenForAccount obtains an access token for a specific account.
+func getAccessTokenForAccount(ctx context.Context, email string) (string, error) {
+	oauthClient, err := auth.NewOAuthClient(cfg.ClientID, cfg.CacheDir)
+	if err != nil {
+		return "", err
+	}
+
+	accessToken, err := oauthClient.GetAccessToken(ctx, email)
+	if err != nil {
+		return "", fmt.Errorf("not logged in as %s: %w", email, err)
 	}
 
 	return accessToken, nil
+}
+
+// getAccessToken obtains an access token using requireAccount (for write operations).
+func getAccessToken(ctx context.Context) (string, error) {
+	account, err := requireAccount(ctx)
+	if err != nil {
+		return "", err
+	}
+	return getAccessTokenForAccount(ctx, account)
+}
+
+// isMultiAccount returns true if more than one account is logged in.
+func isMultiAccount(ctx context.Context) bool {
+	oauthClient, err := auth.NewOAuthClient(cfg.ClientID, cfg.CacheDir)
+	if err != nil {
+		return false
+	}
+	accounts, err := oauthClient.ListAccounts(ctx)
+	if err != nil {
+		return false
+	}
+	return len(accounts) > 1
+}
+
+// getFilteredAccessTokens returns tokens for accounts matching the --account filter.
+// If --account is set, returns only that account. Otherwise returns all.
+func getFilteredAccessTokens(ctx context.Context) ([]AccountToken, error) {
+	if accountFlag != "" {
+		token, err := getAccessTokenForAccount(ctx, accountFlag)
+		if err != nil {
+			return nil, err
+		}
+		return []AccountToken{{Email: accountFlag, AccessToken: token}}, nil
+	}
+	return getAllAccessTokens(ctx)
 }
 
 // AccountToken holds an access token for a specific account.

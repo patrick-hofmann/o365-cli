@@ -79,14 +79,12 @@ The tool works out-of-the-box with the built-in Client ID. Optionally, create `~
 
 ```yaml
 client_id: "your-azure-app-client-id"
-current_account: "user@example.com"
 ```
 
 Or set environment variables:
 
 ```bash
 export O365_CLIENT_ID="your-client-id"
-export O365_ACCOUNT="user@example.com"
 ```
 
 ## Usage
@@ -94,87 +92,91 @@ export O365_ACCOUNT="user@example.com"
 ### Authentication
 
 ```bash
-o365-cli auth login            # Login (multiple accounts supported)
-o365-cli auth list             # List all logged-in accounts
-o365-cli auth status           # Check token status
-o365-cli auth switch user2@example.com  # Switch active account
-o365-cli auth logout user@example.com   # Logout specific account
-o365-cli auth logout --all     # Logout all accounts
+o365-cli auth login                      # Login (multiple accounts supported)
+o365-cli auth list                       # List all logged-in accounts
+o365-cli auth status                     # Check token status
+o365-cli auth logout user@example.com    # Logout specific account
+o365-cli auth logout --all               # Logout all accounts
 ```
 
-### Multi-Account Support
+### Multi-Account Behavior
+
+**Read commands** (list, search, today) automatically show data from **all logged-in accounts**. Use `--account` to filter to a specific account:
 
 ```bash
-o365-cli --account user2@example.com mail list
-# Or via environment variable
-O365_ACCOUNT="user2@example.com" o365-cli mail list
+o365-cli mail list                                # All accounts
+o365-cli mail list --account user@example.com     # Specific account
+o365-cli calendar today                           # All accounts
 ```
 
-Priority: `--account` flag → `O365_ACCOUNT` env → `current_account` in config
+**Write commands** (send, create, delete, etc.) require `--account` when multiple accounts are logged in:
+
+```bash
+o365-cli mail send --account user@example.com --to ... --subject ... --body ...
+o365-cli calendar create --account user@example.com --subject "Meeting" --start ... --end ...
+```
+
+With only one account logged in, `--account` is not needed — the single account is used automatically.
 
 ### Mail
 
 ```bash
-# List emails
+# List emails (all accounts)
 o365-cli mail list
 o365-cli mail list --folder "Sent Items" --limit 20
 o365-cli mail list --unread --json
 
-# Read email
-o365-cli mail read <message-id>
+# Read email (requires --account if multiple)
+o365-cli mail read <message-id> --account user@example.com
 
-# Send email
-o365-cli mail send --to user@example.com --subject "Test" --body "Hello!"
-o365-cli mail send --to user@example.com --body-file report.txt --html
+# Send email (requires --account if multiple)
+o365-cli mail send --account user@example.com --to recipient@example.com --subject "Test" --body "Hello!"
 
 # Reply / Forward
-o365-cli mail reply <message-id> --body "Thanks!"
-o365-cli mail forward <message-id> --to other@example.com
+o365-cli mail reply <message-id> --account user@example.com --body "Thanks!"
+o365-cli mail forward <message-id> --account user@example.com --to other@example.com
 
 # Manage
-o365-cli mail mark-read <message-id>
-o365-cli mail move <message-id> --to "Archive"
-o365-cli mail trash <message-id>
+o365-cli mail mark-read <message-id> --account user@example.com
+o365-cli mail move <message-id> --account user@example.com --to "Archive"
+o365-cli mail trash <message-id> --account user@example.com
 
-# Search
+# Search (all accounts)
 o365-cli mail search --from boss@example.com --since 7d
 o365-cli mail query "subject:invoice AND from:finance"
 
 # Archive from specific senders
-o365-cli mail archive-from sender@example.com --dry-run
+o365-cli mail archive-from sender@example.com --account user@example.com --dry-run
 ```
 
 ### Calendar
 
 ```bash
-# List events
-o365-cli calendar list                    # Next 7 days
+# List events (all accounts)
+o365-cli calendar list                    # Next 7 days, all accounts
 o365-cli calendar list --days 14          # Next 14 days
-o365-cli calendar today                   # Today's events
+o365-cli calendar today                   # Today's events, all accounts
 o365-cli calendar today --json            # JSON output
 
-# View event details
-o365-cli calendar get <event-id>
+# View event details (requires --account if multiple)
+o365-cli calendar get <event-id> --account user@example.com
 
-# Create event
-o365-cli calendar create \
+# Create event (requires --account if multiple)
+o365-cli calendar create --account user@example.com \
   --subject "Team Meeting" \
   --start "2026-04-01T10:00:00+02:00" \
   --end "2026-04-01T11:00:00+02:00" \
   --location "Room A" \
-  --attendees user@example.com,other@example.com
+  --attendees colleague@example.com
 
-# Update event
-o365-cli calendar update <event-id> --subject "New Title"
-o365-cli calendar update <event-id> --start "2026-04-01T14:00:00+02:00"
-
-# Delete event
-o365-cli calendar delete <event-id>
+# Update / Delete
+o365-cli calendar update <event-id> --account user@example.com --subject "New Title"
+o365-cli calendar delete <event-id> --account user@example.com
 
 # Respond to invitations
-o365-cli calendar accept <event-id>
-o365-cli calendar decline <event-id> --comment "Can't make it"
-o365-cli calendar tentative <event-id>
+o365-cli calendar accept <event-id> --account user@example.com
+o365-cli calendar decline <event-id> --account user@example.com --comment "Can't make it"
+o365-cli calendar tentative <event-id> --account user@example.com
 ```
 
 ### Folders
@@ -251,14 +253,14 @@ o365-cli --profile read-only mail list    # OK
 o365-cli --profile read-only mail send    # Denied
 ```
 
-## Migration from v1.x
+## Migration from v1.x / v2.0
 
-If upgrading from `o365-mail-cli` v1.x:
-
-- The binary is now called `o365-cli` (was `o365-mail-cli`)
-- Config directory auto-migrates from `~/.o365-mail-cli/` to `~/.o365-cli/` on first run
-- Existing tokens and config are preserved
-- You may need to re-login (`o365-cli auth logout && o365-cli auth login`) for calendar access (new scope)
+- The binary is now `o365-cli` (was `o365-mail-cli`)
+- Config directory auto-migrates from `~/.o365-mail-cli/` to `~/.o365-cli/`
+- `auth switch` has been removed — there is no "current account" concept
+- Read commands show all accounts by default; use `--account` to filter
+- Write commands require `--account` when multiple accounts are logged in
+- Re-login needed for calendar: `o365-cli auth logout --all && o365-cli auth login`
 
 ## Token Management
 

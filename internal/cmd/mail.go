@@ -27,7 +27,6 @@ var (
 	listLimit      int
 	listUnreadOnly bool
 	listJSON       bool
-	listAll        bool
 )
 
 var mailListCmd = &cobra.Command{
@@ -297,7 +296,6 @@ func init() {
 	mailListCmd.Flags().IntVar(&listLimit, "limit", 10, "Maximum number of emails")
 	mailListCmd.Flags().BoolVar(&listUnreadOnly, "unread", false, "Only unread emails")
 	mailListCmd.Flags().BoolVar(&listJSON, "json", false, "Output as JSON")
-	mailListCmd.Flags().BoolVar(&listAll, "all", false, "Show emails from all accounts")
 
 	// Read flags
 	readCmd.Flags().StringVar(&readFolder, "folder", "inbox", "Folder of the email")
@@ -391,60 +389,7 @@ func getGraphClient(ctx context.Context) (*mail.Client, error) {
 func runMailList(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
-	if listAll {
-		return runMailListAll(ctx)
-	}
-
-	client, err := getGraphClient(ctx)
-	if err != nil {
-		return err
-	}
-
-	folderID, err := client.GetFolderByName(listFolder)
-	if err != nil {
-		return err
-	}
-
-	debugLog("Fetching emails from folder %s via Graph API", listFolder)
-
-	emails, err := client.ListEmails(folderID, listLimit, listUnreadOnly)
-	if err != nil {
-		return err
-	}
-
-	if listJSON {
-		return outputJSON(emails)
-	}
-
-	if len(emails) == 0 {
-		printInfo("No emails found.")
-		return nil
-	}
-
-	fmt.Printf("\n%-40s %-20s %-25s %s\n", "ID", "Date", "From", "Subject")
-	fmt.Println(strings.Repeat("─", 110))
-
-	for _, email := range emails {
-		unreadMarker := " "
-		if email.Unread {
-			unreadMarker = "●"
-		}
-
-		id := truncate(email.MessageID, 38)
-		from := truncate(email.From, 23)
-		subject := truncate(email.Subject, 30)
-		date := email.Date.Local().Format("2006-01-02 15:04")
-
-		fmt.Printf("%s %-39s %-20s %-25s %s\n", unreadMarker, id, date, from, subject)
-	}
-
-	fmt.Printf("\n%d emails shown\n", len(emails))
-
-	return nil
-}
-
-func runMailListAll(ctx context.Context) error {
-	tokens, err := getAllAccessTokens(ctx)
+	tokens, err := getFilteredAccessTokens(ctx)
 	if err != nil {
 		return err
 	}
@@ -500,29 +445,37 @@ func runMailListAll(ctx context.Context) error {
 	}
 
 	if len(allEmails) == 0 {
-		printInfo("No emails found across all accounts.")
+		printInfo("No emails found.")
 		return nil
 	}
 
-	fmt.Printf("\n%-22s %-20s %-20s %-25s %s\n", "ACCOUNT", "ID", "Date", "From", "Subject")
-	fmt.Println(strings.Repeat("─", 130))
+	multi := isMultiAccount(ctx)
 
-	for _, email := range allEmails {
-		unreadMarker := " "
-		if email.Unread {
-			unreadMarker = "●"
+	if multi {
+		fmt.Printf("\n%-22s %-20s %-20s %-25s %s\n", "ACCOUNT", "ID", "Date", "From", "Subject")
+		fmt.Println(strings.Repeat("─", 130))
+
+		for _, email := range allEmails {
+			unreadMarker := " "
+			if email.Unread {
+				unreadMarker = "●"
+			}
+			fmt.Printf("%s %-21s %-19s %-20s %-25s %s\n", unreadMarker, truncate(email.Account, 20), truncate(email.MessageID, 18), email.Date.Local().Format("2006-01-02 15:04"), truncate(email.From, 23), truncate(email.Subject, 25))
 		}
+	} else {
+		fmt.Printf("\n%-40s %-20s %-25s %s\n", "ID", "Date", "From", "Subject")
+		fmt.Println(strings.Repeat("─", 110))
 
-		acct := truncate(email.Account, 20)
-		id := truncate(email.MessageID, 18)
-		from := truncate(email.From, 23)
-		subject := truncate(email.Subject, 25)
-		date := email.Date.Local().Format("2006-01-02 15:04")
-
-		fmt.Printf("%s %-21s %-19s %-20s %-25s %s\n", unreadMarker, acct, id, date, from, subject)
+		for _, email := range allEmails {
+			unreadMarker := " "
+			if email.Unread {
+				unreadMarker = "●"
+			}
+			fmt.Printf("%s %-39s %-20s %-25s %s\n", unreadMarker, truncate(email.MessageID, 38), email.Date.Local().Format("2006-01-02 15:04"), truncate(email.From, 23), truncate(email.Subject, 30))
+		}
 	}
 
-	fmt.Printf("\n%d emails across all accounts\n", len(allEmails))
+	fmt.Printf("\n%d emails shown\n", len(allEmails))
 
 	return nil
 }

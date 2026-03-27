@@ -42,3 +42,4 @@ Thumbs.db
 # Token files (NIEMALS committen!)
 token.json
 *.token
+o365-mail-cli

@@ -63,36 +63,18 @@ var listCmd = &cobra.Command{
 	RunE:        runList,
 }
 
-var switchCmd = &cobra.Command{
-	Use:   "switch <email>",
-	Short: "Switch default account",
-	Long: `Switches the default account.
-
-The selected account is used as default when no --account flag
-or O365_ACCOUNT environment variable is set.
-
-Examples:
-  o365-cli auth switch user@example.com`,
-	Annotations: map[string]string{profile.AnnotationKey: "auth"},
-	Args:        cobra.ExactArgs(1),
-	RunE:        runSwitch,
-}
-
 var debugCmd = &cobra.Command{
-	Use:   "debug [email]",
+	Use:   "debug <email>",
 	Short: "Debug token issues",
 	Long: `Shows detailed diagnostic information about token state.
 
 This command helps diagnose why authentication might be failing
 by showing the actual error from token refresh attempts.
 
-Without argument, debugs the active account.
-
 Examples:
-  o365-cli auth debug
   o365-cli auth debug user@example.com`,
 	Annotations: map[string]string{profile.AnnotationKey: "auth"},
-	Args:        cobra.MaximumNArgs(1),
+	Args:        cobra.ExactArgs(1),
 	RunE:        runDebug,
 }
 
@@ -103,7 +85,6 @@ func init() {
 	authCmd.AddCommand(logoutCmd)
 	authCmd.AddCommand(statusCmd)
 	authCmd.AddCommand(listCmd)
-	authCmd.AddCommand(switchCmd)
 	authCmd.AddCommand(debugCmd)
 }
 
@@ -158,16 +139,10 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		printError(fmt.Errorf("failed to save account: %w", err))
 	}
 
-	// Set as current_account
-	if err := config.SetCurrentAccount(result.Email); err != nil {
-		printError(fmt.Errorf("failed to set current account: %w", err))
-	}
-
 	fmt.Println()
 	printSuccess("Successfully logged in as %s", result.Email)
 	printInfo("Token valid until: %s", result.ExpiresAt.Format(time.RFC1123))
 	printInfo("Token saved in: %s/token.json", cfg.CacheDir)
-	printInfo("Account set as active account.")
 
 	return nil
 }
@@ -188,26 +163,16 @@ func runLogout(cmd *cobra.Command, args []string) error {
 		if err := config.RemoveAllAccounts(); err != nil {
 			printError(fmt.Errorf("failed to remove accounts from config: %w", err))
 		}
-		if err := config.SetCurrentAccount(""); err != nil {
-			printError(fmt.Errorf("failed to clear current account: %w", err))
-		}
 		printSuccess("All accounts logged out")
 		printInfo("Local tokens deleted.")
 		return nil
 	}
 
-	// Determine email: argument > active account
-	var email string
-	if len(args) > 0 {
-		email = args[0]
-	} else {
-		email = getActiveAccount()
+	// Argument required (no implicit "active account" anymore)
+	if len(args) == 0 {
+		return fmt.Errorf("email argument required. Use 'auth logout <email>' or 'auth logout --all'")
 	}
-
-	if email == "" {
-		printInfo("No account to logout.")
-		return nil
-	}
+	email := args[0]
 
 	// Check if account exists
 	status, _ := oauthClient.GetStatus(ctx, email)
@@ -224,17 +189,6 @@ func runLogout(cmd *cobra.Command, args []string) error {
 	// Remove from accounts.yaml
 	if err := config.RemoveAccount(email); err != nil {
 		printError(fmt.Errorf("failed to remove account from config: %w", err))
-	}
-
-	// If it was the current_account, switch to another
-	if cfg.CurrentAccount == email {
-		newCurrent := config.GetFirstAccount()
-		if err := config.SetCurrentAccount(newCurrent); err != nil {
-			printError(fmt.Errorf("failed to update current account: %w", err))
-		}
-		if newCurrent != "" {
-			printInfo("Active account switched to: %s", newCurrent)
-		}
 	}
 
 	printSuccess("Successfully logged out from %s", email)
@@ -266,17 +220,11 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	currentAccount := getActiveAccount()
 	hasExpiredToken := false
 
 	for _, status := range statuses {
-		marker := "  "
-		if status.Email == currentAccount {
-			marker = "* "
-		}
-
 		if status.TokenExpired {
-			fmt.Printf("%s%s (token expired)\n", marker, status.Email)
+			fmt.Printf("  %s (token expired)\n", status.Email)
 			hasExpiredToken = true
 		} else {
 			remaining := time.Until(status.ExpiresAt)
@@ -286,12 +234,9 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			} else {
 				remainingStr = fmt.Sprintf("%.0fm", remaining.Minutes())
 			}
-			fmt.Printf("%s%s (valid, %s remaining)\n", marker, status.Email, remainingStr)
+			fmt.Printf("  %s (valid, %s remaining)\n", status.Email, remainingStr)
 		}
 	}
-
-	fmt.Println()
-	printInfo("* = active account")
 
 	if hasExpiredToken {
 		fmt.Println()
@@ -313,42 +258,17 @@ func runList(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	currentAccount := getActiveAccount()
-
 	fmt.Println()
 	fmt.Println("Logged-in Accounts")
 	fmt.Println("──────────────────")
 
 	for _, acc := range accounts {
-		marker := "  "
-		if acc.Email == currentAccount {
-			marker = "* "
-		}
 		addedAt := acc.AddedAt.Format("2006-01-02 15:04")
-		fmt.Printf("%s%s (added: %s)\n", marker, acc.Email, addedAt)
+		fmt.Printf("  %s (added: %s)\n", acc.Email, addedAt)
 	}
 
 	fmt.Println()
-	printInfo("* = active account")
-	printInfo("\nUse 'auth switch <email>' to change the active account.")
-
-	return nil
-}
-
-func runSwitch(cmd *cobra.Command, args []string) error {
-	email := args[0]
-
-	// Check if account exists
-	if !config.AccountExists(email) {
-		return fmt.Errorf("account %s not found. Use 'auth list' to show all accounts", email)
-	}
-
-	// Set as current_account
-	if err := config.SetCurrentAccount(email); err != nil {
-		return fmt.Errorf("failed to set current account: %w", err)
-	}
-
-	printSuccess("Active account switched to: %s", email)
+	printInfo("Use --account <email> to target a specific account for write operations.")
 
 	return nil
 }
@@ -356,18 +276,7 @@ func runSwitch(cmd *cobra.Command, args []string) error {
 func runDebug(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
-	// Determine email: argument > active account
-	var email string
-	if len(args) > 0 {
-		email = args[0]
-	} else {
-		email = getActiveAccount()
-	}
-
-	if email == "" {
-		printInfo("No account to debug. Use 'auth login' first.")
-		return nil
-	}
+	email := args[0]
 
 	oauthClient, err := auth.NewOAuthClient(cfg.ClientID, cfg.CacheDir)
 	if err != nil {

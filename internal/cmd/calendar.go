@@ -27,7 +27,6 @@ var (
 	calListDays  int
 	calListLimit int
 	calListJSON  bool
-	calListAll   bool
 )
 
 var calendarListCmd = &cobra.Command{
@@ -45,10 +44,7 @@ Examples:
 
 // --- Today ---
 
-var (
-	calTodayJSON bool
-	calTodayAll  bool
-)
+var calTodayJSON bool
 
 var calendarTodayCmd = &cobra.Command{
 	Use:   "today",
@@ -191,11 +187,9 @@ func init() {
 	calendarListCmd.Flags().IntVar(&calListDays, "days", 7, "Number of days to show")
 	calendarListCmd.Flags().IntVar(&calListLimit, "limit", 25, "Maximum number of events")
 	calendarListCmd.Flags().BoolVar(&calListJSON, "json", false, "Output as JSON")
-	calendarListCmd.Flags().BoolVar(&calListAll, "all", false, "Show events from all accounts")
 
 	// today
 	calendarTodayCmd.Flags().BoolVar(&calTodayJSON, "json", false, "Output as JSON")
-	calendarTodayCmd.Flags().BoolVar(&calTodayAll, "all", false, "Show events from all accounts")
 
 	// get
 	calendarGetCmd.Flags().BoolVar(&calGetJSON, "json", false, "Output as JSON")
@@ -253,23 +247,7 @@ func runCalendarList(cmd *cobra.Command, args []string) error {
 	now := time.Now()
 	endTime := now.AddDate(0, 0, calListDays)
 
-	if calListAll {
-		events, err := fetchAllAccountEvents(ctx, now, endTime, calListLimit)
-		if err != nil {
-			return err
-		}
-		if calListJSON {
-			return calOutputJSON(events)
-		}
-		return printMultiAccountEventTable(events)
-	}
-
-	client, err := getCalendarClient(ctx)
-	if err != nil {
-		return err
-	}
-
-	events, err := client.ListEvents(now, endTime, calListLimit)
+	events, err := fetchAllAccountEvents(ctx, now, endTime, calListLimit)
 	if err != nil {
 		return err
 	}
@@ -278,6 +256,10 @@ func runCalendarList(cmd *cobra.Command, args []string) error {
 		return calOutputJSON(events)
 	}
 
+	multi := isMultiAccount(ctx)
+	if multi {
+		return printMultiAccountEventTable(events)
+	}
 	return printEventTable(events)
 }
 
@@ -287,40 +269,7 @@ func runCalendarToday(cmd *cobra.Command, args []string) error {
 	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	endOfDay := startOfDay.AddDate(0, 0, 1)
 
-	if calTodayAll {
-		events, err := fetchAllAccountEvents(ctx, startOfDay, endOfDay, 50)
-		if err != nil {
-			return err
-		}
-		if calTodayJSON {
-			return calOutputJSON(events)
-		}
-		if len(events) == 0 {
-			printInfo("No events today across all accounts.")
-			return nil
-		}
-		fmt.Printf("\nEvents for %s (all accounts):\n", now.Format("Monday, 2 January 2006"))
-		fmt.Println(strings.Repeat("─", 110))
-		for _, ev := range events {
-			acct := truncate(ev.Account, 20)
-			if ev.IsAllDay {
-				fmt.Printf("  %-22s All day    %-35s %s\n", acct, truncate(ev.Subject, 35), ev.Location)
-			} else {
-				start := ev.Start.Local().Format("15:04")
-				end := ev.End.Local().Format("15:04")
-				fmt.Printf("  %-22s %s-%s  %-35s %s\n", acct, start, end, truncate(ev.Subject, 35), ev.Location)
-			}
-		}
-		fmt.Printf("\n%d event(s) across all accounts\n", len(events))
-		return nil
-	}
-
-	client, err := getCalendarClient(ctx)
-	if err != nil {
-		return err
-	}
-
-	events, err := client.ListEvents(startOfDay, endOfDay, 50)
+	events, err := fetchAllAccountEvents(ctx, startOfDay, endOfDay, 50)
 	if err != nil {
 		return err
 	}
@@ -334,16 +283,31 @@ func runCalendarToday(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Printf("\nEvents for %s:\n", now.Format("Monday, 2 January 2006"))
-	fmt.Println(strings.Repeat("─", 90))
+	multi := isMultiAccount(ctx)
 
-	for _, ev := range events {
-		if ev.IsAllDay {
-			fmt.Printf("  All day    %-40s %s\n", truncate(ev.Subject, 40), ev.Location)
-		} else {
-			start := ev.Start.Local().Format("15:04")
-			end := ev.End.Local().Format("15:04")
-			fmt.Printf("  %s-%s  %-40s %s\n", start, end, truncate(ev.Subject, 40), ev.Location)
+	fmt.Printf("\nEvents for %s:\n", now.Format("Monday, 2 January 2006"))
+	if multi {
+		fmt.Println(strings.Repeat("─", 110))
+		for _, ev := range events {
+			acct := truncate(ev.Account, 20)
+			if ev.IsAllDay {
+				fmt.Printf("  %-22s All day    %-35s %s\n", acct, truncate(ev.Subject, 35), ev.Location)
+			} else {
+				start := ev.Start.Local().Format("15:04")
+				end := ev.End.Local().Format("15:04")
+				fmt.Printf("  %-22s %s-%s  %-35s %s\n", acct, start, end, truncate(ev.Subject, 35), ev.Location)
+			}
+		}
+	} else {
+		fmt.Println(strings.Repeat("─", 90))
+		for _, ev := range events {
+			if ev.IsAllDay {
+				fmt.Printf("  All day    %-40s %s\n", truncate(ev.Subject, 40), ev.Location)
+			} else {
+				start := ev.Start.Local().Format("15:04")
+				end := ev.End.Local().Format("15:04")
+				fmt.Printf("  %s-%s  %-40s %s\n", start, end, truncate(ev.Subject, 40), ev.Location)
+			}
 		}
 	}
 
@@ -353,7 +317,7 @@ func runCalendarToday(cmd *cobra.Command, args []string) error {
 
 // fetchAllAccountEvents queries all accounts in parallel and returns merged, sorted events.
 func fetchAllAccountEvents(ctx context.Context, startTime, endTime time.Time, limit int) ([]calendar.Event, error) {
-	tokens, err := getAllAccessTokens(ctx)
+	tokens, err := getFilteredAccessTokens(ctx)
 	if err != nil {
 		return nil, err
 	}

@@ -66,8 +66,6 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 	fmt.Println("\nCurrent Configuration")
 	fmt.Println("─────────────────────")
 	fmt.Printf("Client ID:       %s\n", maskIfLong(cfg.ClientID, 20))
-	fmt.Printf("Current Account: %s\n", valueOrNone(cfg.CurrentAccount))
-	fmt.Printf("Active Account:  %s\n", valueOrNone(getActiveAccount()))
 	fmt.Printf("Cache Dir:       %s\n", cfg.CacheDir)
 	fmt.Printf("Debug:           %v\n", cfg.Debug)
 
