@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"os"
 	"strings"
 
@@ -80,6 +81,62 @@ Examples:
 	RunE:        runDraftDelete,
 }
 
+// Draft create-reply / create-reply-all / create-forward commands
+var (
+	draftReplyTo  []string
+	draftReplyCc  []string
+	draftReplyBcc []string
+)
+
+var draftCreateReplyCmd = &cobra.Command{
+	Use:   "create-reply [message-id]",
+	Short: "Create a reply draft with auto-quoted original",
+	Long: `Creates a reply draft using Microsoft Graph's createReply endpoint.
+
+The original message is auto-embedded with native Outlook formatting (bold
+Von:/Datum:/An:/Betreff: headers, German date formatting, inline images,
+quote layout). Your --body text is inserted ABOVE the auto-quote (TOFU).
+
+Examples:
+  o365-cli mail drafts create-reply AAMkAGI2... --body "Vielen Dank, mein Kennzeichen ist LB-323GP."
+  o365-cli mail drafts create-reply AAMkAGI2... --body-file reply.txt`,
+	Annotations: map[string]string{profile.AnnotationKey: "drafts.create-reply"},
+	Args:        cobra.ExactArgs(1),
+	RunE:        func(cmd *cobra.Command, args []string) error { return runDraftCreateReply(cmd, args, false) },
+}
+
+var draftCreateReplyAllCmd = &cobra.Command{
+	Use:   "create-reply-all [message-id]",
+	Short: "Create a reply-all draft with auto-quoted original",
+	Long: `Creates a reply-all draft using Microsoft Graph's createReplyAll endpoint.
+
+Same auto-formatting as create-reply, but addresses all original recipients
+(To + Cc) instead of just the sender.
+
+Examples:
+  o365-cli mail drafts create-reply-all AAMkAGI2... --body "Hi all, ..."`,
+	Annotations: map[string]string{profile.AnnotationKey: "drafts.create-reply-all"},
+	Args:        cobra.ExactArgs(1),
+	RunE:        func(cmd *cobra.Command, args []string) error { return runDraftCreateReply(cmd, args, true) },
+}
+
+var draftCreateForwardCmd = &cobra.Command{
+	Use:   "create-forward [message-id]",
+	Short: "Create a forward draft with auto-quoted original",
+	Long: `Creates a forward draft using Microsoft Graph's createForward endpoint.
+
+The original message is auto-embedded with native Outlook formatting. Use
+--to/--cc/--bcc to set recipients on the new draft (or leave blank and
+edit later in Outlook). Your --body text is inserted ABOVE the auto-quote.
+
+Examples:
+  o365-cli mail drafts create-forward AAMkAGI2... --to user@example.com --body "FYI"
+  o365-cli mail drafts create-forward AAMkAGI2... --to a@x.com --cc b@y.com --body "Bitte sehen"`,
+	Annotations: map[string]string{profile.AnnotationKey: "drafts.create-forward"},
+	Args:        cobra.ExactArgs(1),
+	RunE:        runDraftCreateForward,
+}
+
 func init() {
 	// Draft create flags
 	draftCreateCmd.Flags().StringArrayVar(&draftTo, "to", nil, "Recipients")
@@ -95,11 +152,29 @@ func init() {
 	// Draft list flags
 	draftListCmd.Flags().BoolVar(&draftListJSON, "json", false, "Output as JSON")
 
+	// Draft create-reply / create-reply-all flags (share --body / --body-file / --html)
+	for _, c := range []*cobra.Command{draftCreateReplyCmd, draftCreateReplyAllCmd} {
+		c.Flags().StringVar(&draftBody, "body", "", "Message body (inserted ABOVE auto-quote)")
+		c.Flags().StringVar(&draftBodyFile, "body-file", "", "Read body from file")
+		c.Flags().BoolVar(&draftHTML, "html", false, "Body is HTML (default: plain text)")
+	}
+
+	// Draft create-forward flags
+	draftCreateForwardCmd.Flags().StringArrayVar(&draftReplyTo, "to", nil, "Recipients (forward target)")
+	draftCreateForwardCmd.Flags().StringArrayVar(&draftReplyCc, "cc", nil, "CC recipients")
+	draftCreateForwardCmd.Flags().StringArrayVar(&draftReplyBcc, "bcc", nil, "BCC recipients")
+	draftCreateForwardCmd.Flags().StringVar(&draftBody, "body", "", "Message body (inserted ABOVE auto-quote)")
+	draftCreateForwardCmd.Flags().StringVar(&draftBodyFile, "body-file", "", "Read body from file")
+	draftCreateForwardCmd.Flags().BoolVar(&draftHTML, "html", false, "Body is HTML (default: plain text)")
+
 	// Add subcommands
 	draftsCmd.AddCommand(draftCreateCmd)
 	draftsCmd.AddCommand(draftListCmd)
 	draftsCmd.AddCommand(draftSendCmd)
 	draftsCmd.AddCommand(draftDeleteCmd)
+	draftsCmd.AddCommand(draftCreateReplyCmd)
+	draftsCmd.AddCommand(draftCreateReplyAllCmd)
+	draftsCmd.AddCommand(draftCreateForwardCmd)
 
 	// Add drafts command to mail
 	mailCmd.AddCommand(draftsCmd)
@@ -225,5 +300,93 @@ func runDraftDelete(cmd *cobra.Command, args []string) error {
 	}
 
 	printSuccess("Draft deleted")
+	return nil
+}
+
+// formatCommentForGraph prepares the body text for Graph's createReply/createForward
+// `comment` field. The field is interpreted as HTML — plain text with embedded
+// newlines collapses to whitespace unless we convert it to HTML ourselves.
+//   - If isHTML is true (--html flag): pass through unchanged.
+//   - Otherwise: HTML-escape special chars and turn \n into <br>.
+func formatCommentForGraph(body string, isHTML bool) string {
+	if body == "" || isHTML {
+		return body
+	}
+	escaped := html.EscapeString(body)
+	return strings.ReplaceAll(escaped, "\n", "<br>")
+}
+
+func resolveDraftBody() (string, error) {
+	if draftBodyFile != "" {
+		content, err := os.ReadFile(draftBodyFile)
+		if err != nil {
+			return "", fmt.Errorf("could not read body file: %w", err)
+		}
+		return string(content), nil
+	}
+	return draftBody, nil
+}
+
+func runDraftCreateReply(cmd *cobra.Command, args []string, replyAll bool) error {
+	ctx := context.Background()
+	messageID := args[0]
+
+	body, err := resolveDraftBody()
+	if err != nil {
+		return err
+	}
+
+	// Graph's createReply treats the `comment` field as HTML. For plain text
+	// input we must escape HTML special chars and convert newlines to <br>,
+	// otherwise newlines collapse to spaces. With --html the caller is trusted
+	// to pass valid HTML.
+	body = formatCommentForGraph(body, draftHTML)
+
+	client, err := getGraphClient(ctx)
+	if err != nil {
+		return err
+	}
+
+	action := "create-reply"
+	if replyAll {
+		action = "create-reply-all"
+	}
+	debugLog("Creating %s draft via Graph API", action)
+
+	draftID, err := client.CreateReplyDraft(messageID, body, replyAll)
+	if err != nil {
+		return fmt.Errorf("failed to create %s draft: %w", action, err)
+	}
+
+	printSuccess("Draft saved (ID: %s)", draftID)
+	return nil
+}
+
+func runDraftCreateForward(cmd *cobra.Command, args []string) error {
+	ctx := context.Background()
+	messageID := args[0]
+
+	body, err := resolveDraftBody()
+	if err != nil {
+		return err
+	}
+
+	if draftHTML && body != "" && !strings.Contains(body, "<") {
+		body = "<div>" + strings.ReplaceAll(body, "\n", "<br>") + "</div>"
+	}
+
+	client, err := getGraphClient(ctx)
+	if err != nil {
+		return err
+	}
+
+	debugLog("Creating create-forward draft via Graph API")
+
+	draftID, err := client.CreateForwardDraft(messageID, body, draftReplyTo, draftReplyCc, draftReplyBcc)
+	if err != nil {
+		return fmt.Errorf("failed to create forward draft: %w", err)
+	}
+
+	printSuccess("Draft saved (ID: %s)", draftID)
 	return nil
 }

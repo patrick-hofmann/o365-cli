@@ -730,6 +730,86 @@ func (c *Client) DeleteDraft(messageID string) error {
 	return err
 }
 
+// CreateReplyDraft creates a reply draft using Graph's createReply / createReplyAll
+// endpoint. The original message body is auto-quoted (with native Outlook formatting,
+// including inline images). The provided `comment` is inserted at the top.
+// Returns the new draft's message ID.
+func (c *Client) CreateReplyDraft(messageID, comment string, replyAll bool) (string, error) {
+	action := "createReply"
+	if replyAll {
+		action = "createReplyAll"
+	}
+	endpoint := fmt.Sprintf("%s/me/messages/%s/%s", graph.GraphAPIBaseURL, messageID, action)
+
+	body := map[string]interface{}{}
+	if comment != "" {
+		body["comment"] = comment
+	}
+
+	jsonBody, _ := json.Marshal(body)
+	resp, err := c.DoRequest("POST", endpoint, jsonBody)
+	if err != nil {
+		return "", err
+	}
+
+	var result struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(resp, &result); err != nil {
+		return "", fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return result.ID, nil
+}
+
+// CreateForwardDraft creates a forward draft using Graph's createForward endpoint.
+// `to`/`cc`/`bcc` set recipients on the new draft (all optional — caller can leave
+// blank and edit later in Outlook). `comment` is inserted at the top of the body.
+func (c *Client) CreateForwardDraft(messageID, comment string, to, cc, bcc []string) (string, error) {
+	endpoint := fmt.Sprintf("%s/me/messages/%s/createForward", graph.GraphAPIBaseURL, messageID)
+
+	body := map[string]interface{}{}
+	if comment != "" {
+		body["comment"] = comment
+	}
+
+	message := map[string]interface{}{}
+	addRecipients := func(field string, addrs []string) {
+		if len(addrs) == 0 {
+			return
+		}
+		recipients := make([]graph.GraphEmailAddressWrapper, len(addrs))
+		for i, addr := range addrs {
+			recipients[i] = graph.GraphEmailAddressWrapper{
+				EmailAddress: graph.GraphEmailAddress{Address: graph.ParseEmail(addr)},
+			}
+		}
+		message[field] = recipients
+	}
+	addRecipients("toRecipients", to)
+	addRecipients("ccRecipients", cc)
+	addRecipients("bccRecipients", bcc)
+
+	if len(message) > 0 {
+		body["message"] = message
+	}
+
+	jsonBody, _ := json.Marshal(body)
+	resp, err := c.DoRequest("POST", endpoint, jsonBody)
+	if err != nil {
+		return "", err
+	}
+
+	var result struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(resp, &result); err != nil {
+		return "", fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return result.ID, nil
+}
+
 // graphMessageToEmail converts a Graph API message to our Email struct
 func graphMessageToEmail(msg GraphMessageResponse) Email {
 	email := Email{
