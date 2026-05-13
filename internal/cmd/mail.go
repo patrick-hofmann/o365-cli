@@ -63,13 +63,14 @@ Examples:
 
 // Send Command
 var (
-	sendTo       []string
-	sendCc       []string
-	sendBcc      []string
-	sendSubject  string
-	sendBody     string
-	sendBodyFile string
-	sendHTML     bool
+	sendTo          []string
+	sendCc          []string
+	sendBcc         []string
+	sendSubject     string
+	sendBody        string
+	sendBodyFile    string
+	sendHTML        bool
+	sendAttachments []string
 )
 
 var sendCmd = &cobra.Command{
@@ -77,10 +78,17 @@ var sendCmd = &cobra.Command{
 	Short: "Send email",
 	Long: `Sends an email via Microsoft Graph API.
 
+When --attach is used, the email is created as a draft first, attachments
+are uploaded (auto-routing between inline POST and upload session), and the
+draft is then sent. Without --attach the single-shot sendMail endpoint is
+used as before.
+
 Examples:
   o365-cli mail send --to user@example.com --subject "Test" --body "Hello!"
   o365-cli mail send --to user@example.com --subject "Report" --body-file report.txt
-  o365-cli mail send --to user@example.com --cc boss@example.com --subject "Info" --body "Text"`,
+  o365-cli mail send --to user@example.com --cc boss@example.com --subject "Info" --body "Text"
+  o365-cli mail send --to user@example.com --subject "Update" \
+    --body "Anbei." --attach report.xlsx --attach summary.pdf`,
 	Annotations: map[string]string{profile.AnnotationKey: "mail.send"},
 	RunE:        runSend,
 }
@@ -308,6 +316,8 @@ func init() {
 	sendCmd.Flags().StringVar(&sendBody, "body", "", "Message body")
 	sendCmd.Flags().StringVar(&sendBodyFile, "body-file", "", "Read message body from file")
 	sendCmd.Flags().BoolVar(&sendHTML, "html", false, "Send body as HTML")
+	sendCmd.Flags().StringArrayVar(&sendAttachments, "attach", nil,
+		"Path to attachment file (repeatable). Send routes via draft + upload then send.")
 
 	sendCmd.MarkFlagRequired("to")
 	sendCmd.MarkFlagRequired("subject")
@@ -519,6 +529,10 @@ func runSend(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("at least one recipient (--to) required")
 	}
 
+	if err := validateAttachmentPaths(sendAttachments); err != nil {
+		return err
+	}
+
 	body := sendBody
 	if sendBodyFile != "" {
 		content, err := os.ReadFile(sendBodyFile)
@@ -535,6 +549,35 @@ func runSend(cmd *cobra.Command, args []string) error {
 	client, err := getGraphClient(ctx)
 	if err != nil {
 		return err
+	}
+
+	// With attachments: save as draft, upload attachments, send the draft.
+	// sendMail can't accept attachments via the single-shot endpoint without
+	// embedding base64 inline (and only for ≤ 3 MB total).
+	if len(sendAttachments) > 0 {
+		debugLog("Sending via draft path (attachments present)")
+		draftID, err := client.SaveDraft(sendTo, sendCc, sendSubject, body, sendHTML)
+		if err != nil {
+			return fmt.Errorf("save draft for attachment-send failed: %w", err)
+		}
+		if err := attachFilesToDraft(client, draftID, sendAttachments); err != nil {
+			return err
+		}
+		// Bcc isn't supported by SaveDraft; if present, patch the draft.
+		if len(sendBcc) > 0 {
+			if err := client.SetDraftBcc(draftID, sendBcc); err != nil {
+				return fmt.Errorf("set bcc on draft failed: %w", err)
+			}
+		}
+		if err := client.SendDraft(draftID); err != nil {
+			return fmt.Errorf("send draft failed: %w", err)
+		}
+		printSuccess("Email sent to %s (with %d attachment(s))",
+			strings.Join(sendTo, ", "), len(sendAttachments))
+		if len(sendCc) > 0 {
+			printInfo("CC: %s", strings.Join(sendCc, ", "))
+		}
+		return nil
 	}
 
 	debugLog("Sending email via Microsoft Graph API")

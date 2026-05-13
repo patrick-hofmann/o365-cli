@@ -132,9 +132,18 @@ o365-cli mail read <message-id> --account user@example.com
 # Send email (requires --account if multiple)
 o365-cli mail send --account user@example.com --to recipient@example.com --subject "Test" --body "Hello!"
 
+# Send with attachments — auto-routes inline POST (≤ 3 MB) vs. upload session (> 3 MB)
+o365-cli mail send --account user@example.com \
+  --to recipient@example.com --subject "Report" --body "Anbei." \
+  --attach report.xlsx --attach summary.pdf
+
 # Reply / Forward
 o365-cli mail reply <message-id> --account user@example.com --body "Thanks!"
 o365-cli mail forward <message-id> --account user@example.com --to other@example.com
+
+# Reply-draft with attachment (TOFU auto-quote + Excel attached)
+o365-cli mail drafts create-reply <message-id> --account user@example.com \
+  --body "Anbei das Update." --attach report.xlsx
 
 # Manage
 o365-cli mail mark-read <message-id> --account user@example.com

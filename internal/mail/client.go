@@ -716,6 +716,28 @@ func (c *Client) ListDrafts(limit int) ([]Email, error) {
 	return c.ListEmails("drafts", limit, false)
 }
 
+// SetDraftBcc patches the bccRecipients of an existing draft. Useful when a
+// draft was created without bcc (e.g., via SaveDraft) and bcc needs to be set
+// before sending.
+func (c *Client) SetDraftBcc(messageID string, bcc []string) error {
+	if len(bcc) == 0 {
+		return nil
+	}
+	bccRecipients := make([]graph.GraphEmailAddressWrapper, len(bcc))
+	for i, addr := range bcc {
+		bccRecipients[i] = graph.GraphEmailAddressWrapper{
+			EmailAddress: graph.GraphEmailAddress{Address: graph.ParseEmail(addr)},
+		}
+	}
+	body := map[string]interface{}{
+		"bccRecipients": bccRecipients,
+	}
+	jsonBody, _ := json.Marshal(body)
+	endpoint := fmt.Sprintf("%s/me/messages/%s", graph.GraphAPIBaseURL, messageID)
+	_, err := c.DoRequest("PATCH", endpoint, jsonBody)
+	return err
+}
+
 // SendDraft sends a draft and deletes it
 func (c *Client) SendDraft(messageID string) error {
 	endpoint := fmt.Sprintf("%s/me/messages/%s/send", graph.GraphAPIBaseURL, messageID)
@@ -733,8 +755,15 @@ func (c *Client) DeleteDraft(messageID string) error {
 // CreateReplyDraft creates a reply draft using Graph's createReply / createReplyAll
 // endpoint. The original message body is auto-quoted (with native Outlook formatting,
 // including inline images). The provided `comment` is inserted at the top.
+//
+// Optional `to`/`cc`/`bcc` are ADDITIVE: the auto-populated recipients from
+// createReply/createReplyAll are preserved, and the addresses passed here are
+// appended (deduplicated, case-insensitive). This is implemented as a two-step
+// operation: createReply, then PATCH the resulting draft with the merged
+// recipient lists.
+//
 // Returns the new draft's message ID.
-func (c *Client) CreateReplyDraft(messageID, comment string, replyAll bool) (string, error) {
+func (c *Client) CreateReplyDraft(messageID, comment string, replyAll bool, to, cc, bcc []string) (string, error) {
 	action := "createReply"
 	if replyAll {
 		action = "createReplyAll"
@@ -752,14 +781,71 @@ func (c *Client) CreateReplyDraft(messageID, comment string, replyAll bool) (str
 		return "", err
 	}
 
-	var result struct {
-		ID string `json:"id"`
+	var created struct {
+		ID            string                           `json:"id"`
+		ToRecipients  []graph.GraphEmailAddressWrapper `json:"toRecipients"`
+		CcRecipients  []graph.GraphEmailAddressWrapper `json:"ccRecipients"`
+		BccRecipients []graph.GraphEmailAddressWrapper `json:"bccRecipients"`
 	}
-	if err := json.Unmarshal(resp, &result); err != nil {
+	if err := json.Unmarshal(resp, &created); err != nil {
 		return "", fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	return result.ID, nil
+	// If no extra recipients to add, we're done.
+	if len(to) == 0 && len(cc) == 0 && len(bcc) == 0 {
+		return created.ID, nil
+	}
+
+	// Merge auto-populated recipients with extra addresses (deduplicated).
+	mergedTo := mergeRecipients(created.ToRecipients, to)
+	mergedCc := mergeRecipients(created.CcRecipients, cc)
+	mergedBcc := mergeRecipients(created.BccRecipients, bcc)
+
+	patchBody := map[string]interface{}{}
+	if len(to) > 0 {
+		patchBody["toRecipients"] = mergedTo
+	}
+	if len(cc) > 0 {
+		patchBody["ccRecipients"] = mergedCc
+	}
+	if len(bcc) > 0 {
+		patchBody["bccRecipients"] = mergedBcc
+	}
+
+	patchJSON, _ := json.Marshal(patchBody)
+	patchEndpoint := fmt.Sprintf("%s/me/messages/%s", graph.GraphAPIBaseURL, created.ID)
+	if _, err := c.DoRequest("PATCH", patchEndpoint, patchJSON); err != nil {
+		return created.ID, fmt.Errorf("created draft %s but failed to patch recipients: %w", created.ID, err)
+	}
+
+	return created.ID, nil
+}
+
+// mergeRecipients returns the union of `existing` and `extras` (case-insensitive
+// dedup on email address), preserving existing order followed by new additions.
+func mergeRecipients(existing []graph.GraphEmailAddressWrapper, extras []string) []graph.GraphEmailAddressWrapper {
+	seen := make(map[string]bool, len(existing)+len(extras))
+	merged := make([]graph.GraphEmailAddressWrapper, 0, len(existing)+len(extras))
+	for _, r := range existing {
+		key := strings.ToLower(r.EmailAddress.Address)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		merged = append(merged, r)
+	}
+	for _, addr := range extras {
+		parsed := graph.ParseEmail(addr)
+		key := strings.ToLower(parsed)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		merged = append(merged, graph.GraphEmailAddressWrapper{
+			EmailAddress: graph.GraphEmailAddress{Address: parsed},
+		})
+	}
+	return merged
 }
 
 // CreateForwardDraft creates a forward draft using Graph's createForward endpoint.

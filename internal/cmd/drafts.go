@@ -20,12 +20,13 @@ var draftsCmd = &cobra.Command{
 
 // Draft create command
 var (
-	draftTo       []string
-	draftCc       []string
-	draftSubject  string
-	draftBody     string
-	draftBodyFile string
-	draftHTML     bool
+	draftTo          []string
+	draftCc          []string
+	draftSubject     string
+	draftBody        string
+	draftBodyFile    string
+	draftHTML        bool
+	draftAttachments []string // --attach (repeatable) — used by all draft commands
 )
 
 var draftCreateCmd = &cobra.Command{
@@ -35,7 +36,9 @@ var draftCreateCmd = &cobra.Command{
 
 Examples:
   o365-cli mail drafts create --to user@example.com --subject "Test" --body "Hello!"
-  o365-cli mail drafts create --to user@example.com --subject "Report" --body-file draft.txt`,
+  o365-cli mail drafts create --to user@example.com --subject "Report" --body-file draft.txt
+  o365-cli mail drafts create --to user@example.com --subject "Report" \
+    --body-file draft.txt --attach report.xlsx --attach summary.pdf`,
 	Annotations: map[string]string{profile.AnnotationKey: "drafts.create"},
 	RunE:        runDraftCreate,
 }
@@ -99,7 +102,8 @@ quote layout). Your --body text is inserted ABOVE the auto-quote (TOFU).
 
 Examples:
   o365-cli mail drafts create-reply AAMkAGI2... --body "Vielen Dank, mein Kennzeichen ist LB-323GP."
-  o365-cli mail drafts create-reply AAMkAGI2... --body-file reply.txt`,
+  o365-cli mail drafts create-reply AAMkAGI2... --body-file reply.txt
+  o365-cli mail drafts create-reply AAMkAGI2... --body "Anbei das Update." --attach report.xlsx`,
 	Annotations: map[string]string{profile.AnnotationKey: "drafts.create-reply"},
 	Args:        cobra.ExactArgs(1),
 	RunE:        func(cmd *cobra.Command, args []string) error { return runDraftCreateReply(cmd, args, false) },
@@ -114,7 +118,8 @@ Same auto-formatting as create-reply, but addresses all original recipients
 (To + Cc) instead of just the sender.
 
 Examples:
-  o365-cli mail drafts create-reply-all AAMkAGI2... --body "Hi all, ..."`,
+  o365-cli mail drafts create-reply-all AAMkAGI2... --body "Hi all, ..."
+  o365-cli mail drafts create-reply-all AAMkAGI2... --body "Anbei." --attach minutes.pdf`,
 	Annotations: map[string]string{profile.AnnotationKey: "drafts.create-reply-all"},
 	Args:        cobra.ExactArgs(1),
 	RunE:        func(cmd *cobra.Command, args []string) error { return runDraftCreateReply(cmd, args, true) },
@@ -131,7 +136,8 @@ edit later in Outlook). Your --body text is inserted ABOVE the auto-quote.
 
 Examples:
   o365-cli mail drafts create-forward AAMkAGI2... --to user@example.com --body "FYI"
-  o365-cli mail drafts create-forward AAMkAGI2... --to a@x.com --cc b@y.com --body "Bitte sehen"`,
+  o365-cli mail drafts create-forward AAMkAGI2... --to a@x.com --cc b@y.com --body "Bitte sehen"
+  o365-cli mail drafts create-forward AAMkAGI2... --to user@example.com --body "FYI" --attach addendum.pdf`,
 	Annotations: map[string]string{profile.AnnotationKey: "drafts.create-forward"},
 	Args:        cobra.ExactArgs(1),
 	RunE:        runDraftCreateForward,
@@ -145,6 +151,8 @@ func init() {
 	draftCreateCmd.Flags().StringVar(&draftBody, "body", "", "Message body")
 	draftCreateCmd.Flags().StringVar(&draftBodyFile, "body-file", "", "Read body from file")
 	draftCreateCmd.Flags().BoolVar(&draftHTML, "html", false, "Body is HTML")
+	draftCreateCmd.Flags().StringArrayVar(&draftAttachments, "attach", nil,
+		"Path to attachment file (repeatable). Auto-detects size; > 3 MB use upload session.")
 
 	draftCreateCmd.MarkFlagRequired("to")
 	draftCreateCmd.MarkFlagRequired("subject")
@@ -152,11 +160,16 @@ func init() {
 	// Draft list flags
 	draftListCmd.Flags().BoolVar(&draftListJSON, "json", false, "Output as JSON")
 
-	// Draft create-reply / create-reply-all flags (share --body / --body-file / --html)
+	// Draft create-reply / create-reply-all flags (share --body / --body-file / --html / recipient overrides)
 	for _, c := range []*cobra.Command{draftCreateReplyCmd, draftCreateReplyAllCmd} {
 		c.Flags().StringVar(&draftBody, "body", "", "Message body (inserted ABOVE auto-quote)")
 		c.Flags().StringVar(&draftBodyFile, "body-file", "", "Read body from file")
 		c.Flags().BoolVar(&draftHTML, "html", false, "Body is HTML (default: plain text)")
+		c.Flags().StringArrayVar(&draftReplyTo, "to", nil, "Override To recipients (default: original sender / all)")
+		c.Flags().StringArrayVar(&draftReplyCc, "cc", nil, "Override or extend Cc recipients")
+		c.Flags().StringArrayVar(&draftReplyBcc, "bcc", nil, "Override or extend Bcc recipients")
+		c.Flags().StringArrayVar(&draftAttachments, "attach", nil,
+			"Path to attachment file (repeatable). Auto-detects size; > 3 MB use upload session.")
 	}
 
 	// Draft create-forward flags
@@ -166,6 +179,8 @@ func init() {
 	draftCreateForwardCmd.Flags().StringVar(&draftBody, "body", "", "Message body (inserted ABOVE auto-quote)")
 	draftCreateForwardCmd.Flags().StringVar(&draftBodyFile, "body-file", "", "Read body from file")
 	draftCreateForwardCmd.Flags().BoolVar(&draftHTML, "html", false, "Body is HTML (default: plain text)")
+	draftCreateForwardCmd.Flags().StringArrayVar(&draftAttachments, "attach", nil,
+		"Path to attachment file (repeatable). Auto-detects size; > 3 MB use upload session.")
 
 	// Add subcommands
 	draftsCmd.AddCommand(draftCreateCmd)
@@ -186,6 +201,11 @@ func runDraftCreate(cmd *cobra.Command, args []string) error {
 	// Validation
 	if len(draftTo) == 0 {
 		return fmt.Errorf("at least one recipient (--to) required")
+	}
+
+	// Validate attachment paths early so we don't create a draft we can't fully populate.
+	if err := validateAttachmentPaths(draftAttachments); err != nil {
+		return err
 	}
 
 	// Body from file or direct
@@ -212,6 +232,10 @@ func runDraftCreate(cmd *cobra.Command, args []string) error {
 	draftID, err := client.SaveDraft(draftTo, draftCc, draftSubject, body, draftHTML)
 	if err != nil {
 		return fmt.Errorf("failed to save draft: %w", err)
+	}
+
+	if err := attachFilesToDraft(client, draftID, draftAttachments); err != nil {
+		return err
 	}
 
 	printSuccess("Draft saved (ID: %s)", draftID)
@@ -331,6 +355,10 @@ func runDraftCreateReply(cmd *cobra.Command, args []string, replyAll bool) error
 	ctx := context.Background()
 	messageID := args[0]
 
+	if err := validateAttachmentPaths(draftAttachments); err != nil {
+		return err
+	}
+
 	body, err := resolveDraftBody()
 	if err != nil {
 		return err
@@ -353,9 +381,13 @@ func runDraftCreateReply(cmd *cobra.Command, args []string, replyAll bool) error
 	}
 	debugLog("Creating %s draft via Graph API", action)
 
-	draftID, err := client.CreateReplyDraft(messageID, body, replyAll)
+	draftID, err := client.CreateReplyDraft(messageID, body, replyAll, draftReplyTo, draftReplyCc, draftReplyBcc)
 	if err != nil {
 		return fmt.Errorf("failed to create %s draft: %w", action, err)
+	}
+
+	if err := attachFilesToDraft(client, draftID, draftAttachments); err != nil {
+		return err
 	}
 
 	printSuccess("Draft saved (ID: %s)", draftID)
@@ -366,14 +398,16 @@ func runDraftCreateForward(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 	messageID := args[0]
 
+	if err := validateAttachmentPaths(draftAttachments); err != nil {
+		return err
+	}
+
 	body, err := resolveDraftBody()
 	if err != nil {
 		return err
 	}
 
-	if draftHTML && body != "" && !strings.Contains(body, "<") {
-		body = "<div>" + strings.ReplaceAll(body, "\n", "<br>") + "</div>"
-	}
+	body = formatCommentForGraph(body, draftHTML)
 
 	client, err := getGraphClient(ctx)
 	if err != nil {
@@ -387,6 +421,62 @@ func runDraftCreateForward(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create forward draft: %w", err)
 	}
 
+	if err := attachFilesToDraft(client, draftID, draftAttachments); err != nil {
+		return err
+	}
+
 	printSuccess("Draft saved (ID: %s)", draftID)
 	return nil
+}
+
+// validateAttachmentPaths fails fast if any --attach path doesn't exist or is a
+// directory. Catches typos before we POST a draft we can't complete.
+func validateAttachmentPaths(paths []string) error {
+	for _, p := range paths {
+		info, err := os.Stat(p)
+		if err != nil {
+			return fmt.Errorf("attachment %q: %w", p, err)
+		}
+		if info.IsDir() {
+			return fmt.Errorf("attachment %q is a directory", p)
+		}
+	}
+	return nil
+}
+
+// attachFilesToDraft uploads each file as attachment to the given draft.
+// Reports progress per file. Aborts on first failure (the draft itself is
+// kept; user can re-run or finish in Outlook).
+func attachFilesToDraft(client interface {
+	AddAttachment(messageID, filePath string) (string, error)
+}, draftID string, paths []string) error {
+	for _, p := range paths {
+		info, _ := os.Stat(p)
+		size := int64(0)
+		if info != nil {
+			size = info.Size()
+		}
+		debugLog("Attaching %s (%d bytes) to draft %s", p, size, draftID)
+		if _, err := client.AddAttachment(draftID, p); err != nil {
+			return fmt.Errorf("attach %q: %w", p, err)
+		}
+		printInfo("Attached: %s (%s)", p, humanSize(size))
+	}
+	return nil
+}
+
+// humanSize renders a byte count as a short human-readable string.
+func humanSize(n int64) string {
+	const (
+		kb = 1024
+		mb = 1024 * kb
+	)
+	switch {
+	case n >= mb:
+		return fmt.Sprintf("%.1f MB", float64(n)/float64(mb))
+	case n >= kb:
+		return fmt.Sprintf("%.1f KB", float64(n)/float64(kb))
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
 }
