@@ -34,26 +34,28 @@ type Attendee struct {
 
 // CreateEventOptions contains options for creating an event.
 type CreateEventOptions struct {
-	Subject   string
-	Body      string
-	IsHTML    bool
-	Start     time.Time
-	End       time.Time
-	Location  string
-	Attendees []string
-	IsAllDay  bool
+	Subject         string
+	Body            string
+	IsHTML          bool
+	Start           time.Time
+	End             time.Time
+	Location        string
+	Attendees       []string
+	IsAllDay        bool
+	ReminderMinutes *int // nil = server default, 0 = reminder off
 }
 
 // UpdateEventOptions contains options for updating an event.
 // Pointer fields: nil means "don't update", non-nil means "set to this value".
 type UpdateEventOptions struct {
-	Subject   *string
-	Body      *string
-	IsHTML    bool
-	Start     *time.Time
-	End       *time.Time
-	Location  *string
-	Attendees []string
+	Subject         *string
+	Body            *string
+	IsHTML          bool
+	Start           *time.Time
+	End             *time.Time
+	Location        *string
+	Attendees       []string
+	ReminderMinutes *int // nil = don't change, 0 = reminder off
 }
 
 // ResponseType represents the type of response to an event invitation.

@@ -112,6 +112,8 @@ func (c *Client) CreateEvent(opts CreateEventOptions) (*Event, error) {
 		body["isAllDay"] = true
 	}
 
+	applyReminder(body, opts.ReminderMinutes)
+
 	if len(opts.Attendees) > 0 {
 		attendees := make([]map[string]interface{}, len(opts.Attendees))
 		for i, addr := range opts.Attendees {
@@ -185,6 +187,8 @@ func (c *Client) UpdateEvent(eventID string, opts UpdateEventOptions) (*Event, e
 		body["attendees"] = attendees
 	}
 
+	applyReminder(body, opts.ReminderMinutes)
+
 	jsonBody, err := json.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
@@ -202,6 +206,18 @@ func (c *Client) UpdateEvent(eventID string, opts UpdateEventOptions) (*Event, e
 
 	event := graphEventToEvent(ev)
 	return &event, nil
+}
+
+func applyReminder(body map[string]interface{}, minutes *int) {
+	if minutes == nil {
+		return
+	}
+	if *minutes == 0 {
+		body["isReminderOn"] = false
+		return
+	}
+	body["isReminderOn"] = true
+	body["reminderMinutesBeforeStart"] = *minutes
 }
 
 // DeleteEvent deletes a calendar event.

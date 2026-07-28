@@ -87,6 +87,7 @@ var (
 	calCreateAttendees []string
 	calCreateAllDay    bool
 	calCreateHTML      bool
+	calCreateReminder  int
 )
 
 var calendarCreateCmd = &cobra.Command{
@@ -111,6 +112,7 @@ var (
 	calUpdateBody      string
 	calUpdateBodyFile  string
 	calUpdateAttendees []string
+	calUpdateReminder  int
 )
 
 var calendarUpdateCmd = &cobra.Command{
@@ -204,6 +206,7 @@ func init() {
 	calendarCreateCmd.Flags().StringSliceVar(&calCreateAttendees, "attendees", nil, "Attendee email addresses")
 	calendarCreateCmd.Flags().BoolVar(&calCreateAllDay, "all-day", false, "All-day event")
 	calendarCreateCmd.Flags().BoolVar(&calCreateHTML, "html", false, "Body is HTML")
+	calendarCreateCmd.Flags().IntVar(&calCreateReminder, "reminder", 0, "Reminder minutes before start (0 = no reminder)")
 	_ = calendarCreateCmd.MarkFlagRequired("subject")
 	_ = calendarCreateCmd.MarkFlagRequired("start")
 	_ = calendarCreateCmd.MarkFlagRequired("end")
@@ -216,6 +219,7 @@ func init() {
 	calendarUpdateCmd.Flags().StringVar(&calUpdateBody, "body", "", "New body")
 	calendarUpdateCmd.Flags().StringVar(&calUpdateBodyFile, "body-file", "", "Read new body from file")
 	calendarUpdateCmd.Flags().StringSliceVar(&calUpdateAttendees, "attendees", nil, "New attendee list")
+	calendarUpdateCmd.Flags().IntVar(&calUpdateReminder, "reminder", 0, "Reminder minutes before start (0 = no reminder)")
 
 	// respond
 	calendarAcceptCmd.Flags().StringVar(&calRespondComment, "comment", "", "Response comment")
@@ -462,6 +466,9 @@ func runCalendarCreate(cmd *cobra.Command, args []string) error {
 		Attendees: calCreateAttendees,
 		IsAllDay:  calCreateAllDay,
 	}
+	if cmd.Flags().Changed("reminder") {
+		opts.ReminderMinutes = &calCreateReminder
+	}
 
 	event, err := client.CreateEvent(opts)
 	if err != nil {
@@ -514,6 +521,9 @@ func runCalendarUpdate(cmd *cobra.Command, args []string) error {
 
 	if cmd.Flags().Changed("attendees") {
 		opts.Attendees = calUpdateAttendees
+	}
+	if cmd.Flags().Changed("reminder") {
+		opts.ReminderMinutes = &calUpdateReminder
 	}
 
 	client, err := getCalendarClient(ctx)
