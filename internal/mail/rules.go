@@ -115,8 +115,28 @@ func (c *Client) GetRule(ruleID string) (*MessageRule, error) {
 	return &rule, nil
 }
 
-// CreateRule creates a new inbox message rule
+// nextSequence returns a sequence that places a new rule after all existing ones.
+func nextSequence(rules []MessageRule) int {
+	highest := 0
+	for _, r := range rules {
+		if r.Sequence > highest {
+			highest = r.Sequence
+		}
+	}
+	return highest + 1
+}
+
+// CreateRule creates a new inbox message rule.
+// Graph rejects sequence 0, so a rule without one is appended after the existing rules.
 func (c *Client) CreateRule(rule *MessageRule) (*MessageRule, error) {
+	if rule.Sequence == 0 {
+		existing, err := c.ListRules()
+		if err != nil {
+			return nil, fmt.Errorf("failed to determine rule sequence: %w", err)
+		}
+		rule.Sequence = nextSequence(existing)
+	}
+
 	endpoint := fmt.Sprintf("%s/me/mailFolders/inbox/messageRules", graph.GraphAPIBaseURL)
 
 	jsonBody, err := json.Marshal(rule)

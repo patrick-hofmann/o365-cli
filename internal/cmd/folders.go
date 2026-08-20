@@ -15,9 +15,16 @@ var foldersCmd = &cobra.Command{
 	Long:  "Commands for listing, creating, and deleting mail folders via Microsoft Graph API.",
 }
 
+var foldersListJSON bool
+
 var foldersListCmd = &cobra.Command{
-	Use:         "list",
-	Short:       "List all folders",
+	Use:   "list",
+	Short: "List all folders",
+	Long: `Lists all mail folders.
+
+Examples:
+  o365-cli folders list
+  o365-cli folders list --json`,
 	Annotations: map[string]string{profile.AnnotationKey: "folders.read"},
 	RunE:        runFoldersList,
 }
@@ -50,6 +57,8 @@ Examples:
 }
 
 func init() {
+	foldersListCmd.Flags().BoolVar(&foldersListJSON, "json", false, "Output as JSON (includes folder IDs)")
+
 	foldersCmd.AddCommand(foldersListCmd)
 	foldersCmd.AddCommand(foldersCreateCmd)
 	foldersCmd.AddCommand(foldersDeleteCmd)
@@ -68,6 +77,10 @@ func runFoldersList(cmd *cobra.Command, args []string) error {
 	folders, err := client.ListFolders()
 	if err != nil {
 		return err
+	}
+
+	if foldersListJSON {
+		return outputJSON(folders)
 	}
 
 	fmt.Println("\nAvailable Folders:")

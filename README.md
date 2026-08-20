@@ -192,6 +192,7 @@ o365-cli calendar tentative <event-id> --account user@example.com
 
 ```bash
 o365-cli folders list
+o365-cli folders list --json          # includes folder IDs
 o365-cli folders create "Archive/2024"
 o365-cli folders delete "Old Folder"
 ```
