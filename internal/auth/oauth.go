@@ -28,6 +28,10 @@ var Scopes = []string{
 	"https://graph.microsoft.com/Mail.ReadWrite",
 	"https://graph.microsoft.com/Mail.Send",
 	"https://graph.microsoft.com/Calendars.ReadWrite",
+	// Posteingangsregeln (/mailFolders/inbox/messageRules) haengen an
+	// MailboxSettings, nicht an Mail.*. Ohne diesen Scope antwortet Graph
+	// auf jeden rules-Aufruf mit 403 ErrorAccessDenied.
+	"https://graph.microsoft.com/MailboxSettings.ReadWrite",
 	// offline_access is automatically requested by MSAL
 }
 
