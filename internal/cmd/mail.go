@@ -442,10 +442,12 @@ func runMailList(cmd *cobra.Command, args []string) error {
 
 	wg.Wait()
 
-	var allEmails []mail.Email
+	allEmails := []mail.Email{}
+	var failed []string
 	for _, r := range results {
 		if r.err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: %s: %v\n", r.email, r.err)
+			failed = append(failed, r.email)
 			continue
 		}
 		for i := range r.emails {
@@ -459,12 +461,15 @@ func runMailList(cmd *cobra.Command, args []string) error {
 	})
 
 	if listJSON || listWithBody {
-		return outputJSON(allEmails)
+		if err := outputJSON(allEmails); err != nil {
+			return err
+		}
+		return incompleteListing(failed)
 	}
 
 	if len(allEmails) == 0 {
 		printInfo("No emails found.")
-		return nil
+		return incompleteListing(failed)
 	}
 
 	multi := isMultiAccount(ctx)
@@ -495,7 +500,17 @@ func runMailList(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("\n%d emails shown\n", len(allEmails))
 
-	return nil
+	return incompleteListing(failed)
+}
+
+// incompleteListing turns skipped accounts into a non-zero exit. Without it a
+// caller that checks only the exit code would treat a truncated listing as a
+// complete one.
+func incompleteListing(failed []string) error {
+	if len(failed) == 0 {
+		return nil
+	}
+	return fmt.Errorf("listing incomplete, no results for: %s", strings.Join(failed, ", "))
 }
 
 func runRead(cmd *cobra.Command, args []string) error {
