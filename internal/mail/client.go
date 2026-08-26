@@ -144,7 +144,7 @@ type GraphBody struct {
 // ListEmails lists emails from a folder. With withBody the full body and the
 // attachment metadata come along, which is roughly fifteen times faster than
 // fetching each message individually when exporting a whole folder.
-func (c *Client) ListEmails(folderID string, limit int, unreadOnly bool, withBody bool) ([]Email, error) {
+func (c *Client) ListEmails(folderID string, limit int, unreadOnly bool, withBody bool, oldestFirst bool) ([]Email, error) {
 	endpoint := fmt.Sprintf("%s/me/mailFolders/%s/messages", graph.GraphAPIBaseURL, url.PathEscape(folderID))
 
 	pageSize := limit
@@ -153,7 +153,11 @@ func (c *Client) ListEmails(folderID string, limit int, unreadOnly bool, withBod
 	}
 	params := url.Values{}
 	params.Set("$top", fmt.Sprintf("%d", pageSize))
-	params.Set("$orderby", "receivedDateTime desc")
+	order := "desc"
+	if oldestFirst {
+		order = "asc"
+	}
+	params.Set("$orderby", "receivedDateTime "+order)
 	params.Set("$select", "id,subject,bodyPreview,receivedDateTime,isRead,from,toRecipients,hasAttachments,internetMessageId")
 
 	if withBody {
@@ -729,7 +733,7 @@ func (c *Client) SaveDraft(to, cc []string, subject, body string, html bool) (st
 
 // ListDrafts lists draft emails
 func (c *Client) ListDrafts(limit int) ([]Email, error) {
-	return c.ListEmails("drafts", limit, false, false)
+	return c.ListEmails("drafts", limit, false, false, false)
 }
 
 // SetDraftBcc patches the bccRecipients of an existing draft. Useful when a

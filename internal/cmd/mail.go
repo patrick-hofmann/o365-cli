@@ -28,6 +28,7 @@ var (
 	listUnreadOnly bool
 	listJSON       bool
 	listWithBody   bool
+	listOldest     bool
 )
 
 var mailListCmd = &cobra.Command{
@@ -311,6 +312,7 @@ func init() {
 	mailListCmd.Flags().BoolVar(&listUnreadOnly, "unread", false, "Only unread emails")
 	mailListCmd.Flags().BoolVar(&listJSON, "json", false, "Output as JSON")
 	mailListCmd.Flags().BoolVar(&listWithBody, "with-body", false, "Include full body and attachment metadata (implies --json)")
+	mailListCmd.Flags().BoolVar(&listOldest, "oldest-first", false, "Start at the oldest mail, so --limit takes the tail of a folder")
 
 	// Read flags
 	readCmd.Flags().StringVar(&readFolder, "folder", "inbox", "Folder of the email")
@@ -435,7 +437,7 @@ func runMailList(cmd *cobra.Command, args []string) error {
 				results[idx] = result{email: at.Email, err: err}
 				return
 			}
-			emails, err := client.ListEmails(folderID, listLimit, listUnreadOnly, listWithBody)
+			emails, err := client.ListEmails(folderID, listLimit, listUnreadOnly, listWithBody, listOldest)
 			results[idx] = result{emails: emails, email: at.Email, err: err}
 		}(i, at)
 	}
