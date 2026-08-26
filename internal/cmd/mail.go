@@ -27,6 +27,7 @@ var (
 	listLimit      int
 	listUnreadOnly bool
 	listJSON       bool
+	listWithBody   bool
 )
 
 var mailListCmd = &cobra.Command{
@@ -38,7 +39,8 @@ Examples:
   o365-cli mail list
   o365-cli mail list --folder "Sent Items" --limit 20
   o365-cli mail list --unread
-  o365-cli mail list --json`,
+  o365-cli mail list --json
+  o365-cli mail list --folder Archiv --limit 5000 --with-body`,
 	Annotations: map[string]string{profile.AnnotationKey: "mail.read"},
 	RunE:        runMailList,
 }
@@ -308,6 +310,7 @@ func init() {
 	mailListCmd.Flags().IntVar(&listLimit, "limit", 10, "Maximum number of emails")
 	mailListCmd.Flags().BoolVar(&listUnreadOnly, "unread", false, "Only unread emails")
 	mailListCmd.Flags().BoolVar(&listJSON, "json", false, "Output as JSON")
+	mailListCmd.Flags().BoolVar(&listWithBody, "with-body", false, "Include full body and attachment metadata (implies --json)")
 
 	// Read flags
 	readCmd.Flags().StringVar(&readFolder, "folder", "inbox", "Folder of the email")
@@ -432,7 +435,7 @@ func runMailList(cmd *cobra.Command, args []string) error {
 				results[idx] = result{email: at.Email, err: err}
 				return
 			}
-			emails, err := client.ListEmails(folderID, listLimit, listUnreadOnly)
+			emails, err := client.ListEmails(folderID, listLimit, listUnreadOnly, listWithBody)
 			results[idx] = result{emails: emails, email: at.Email, err: err}
 		}(i, at)
 	}
@@ -455,7 +458,7 @@ func runMailList(cmd *cobra.Command, args []string) error {
 		return allEmails[i].Date.After(allEmails[j].Date)
 	})
 
-	if listJSON {
+	if listJSON || listWithBody {
 		return outputJSON(allEmails)
 	}
 
