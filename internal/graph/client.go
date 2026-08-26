@@ -17,6 +17,10 @@ const (
 	// paginated requests, so a 429 is expected traffic, not an error.
 	maxRetries        = 5
 	fallbackRetryWait = 10 * time.Second
+
+	// A single page of 100 messages with bodies is a few megabytes; 30s was
+	// enough for metadata but cuts bulk reads off mid-body.
+	requestTimeout = 3 * time.Minute
 )
 
 // Client is a generic Microsoft Graph API HTTP client.
@@ -29,7 +33,7 @@ type Client struct {
 func NewClient(accessToken string) *Client {
 	return &Client{
 		HttpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: requestTimeout,
 		},
 		AccessToken: accessToken,
 	}
@@ -73,7 +77,12 @@ func (c *Client) doOnce(method, endpoint string, body []byte) ([]byte, time.Dura
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		// A body that stops early yields "unexpected end of JSON input" three
+		// layers up, which reads like a Graph bug rather than a dropped read.
+		return nil, fallbackRetryWait, fmt.Errorf("response body truncated: %w", err)
+	}
 
 	if resp.StatusCode >= 400 {
 		apiErr := fmt.Errorf("Graph API error (status %d): %s", resp.StatusCode, string(respBody))
