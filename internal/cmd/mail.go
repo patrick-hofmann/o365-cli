@@ -44,7 +44,10 @@ Examples:
 }
 
 // Read Command
-var readFolder string
+var (
+	readFolder string
+	readJSON   bool
+)
 
 var readCmd = &cobra.Command{
 	Use:   "read [message-id]",
@@ -55,7 +58,8 @@ Find the message ID in the output of 'mail list --json'.
 
 Examples:
   o365-cli mail read AAMkAGI2...
-  o365-cli mail read AAMkAGI2... --folder "Sent Items"`,
+  o365-cli mail read AAMkAGI2... --folder "Sent Items"
+  o365-cli mail read AAMkAGI2... --json`,
 	Annotations: map[string]string{profile.AnnotationKey: "mail.read"},
 	Args:        cobra.ExactArgs(1),
 	RunE:        runRead,
@@ -307,6 +311,7 @@ func init() {
 
 	// Read flags
 	readCmd.Flags().StringVar(&readFolder, "folder", "inbox", "Folder of the email")
+	readCmd.Flags().BoolVar(&readJSON, "json", false, "Output as JSON")
 
 	// Send flags
 	sendCmd.Flags().StringArrayVar(&sendTo, "to", nil, "Recipients (can be specified multiple times)")
@@ -509,17 +514,36 @@ func runRead(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if readJSON {
+		return outputJSON(email)
+	}
+
 	fmt.Println()
 	fmt.Println("═══════════════════════════════════════════════════════════════")
 	fmt.Printf("From:    %s\n", email.From)
 	fmt.Printf("To:      %s\n", strings.Join(email.To, ", "))
 	fmt.Printf("Subject: %s\n", email.Subject)
 	fmt.Printf("Date:    %s\n", email.Date.Local().Format(time.RFC1123))
+	if names := attachmentNames(email.Attachments); len(names) > 0 {
+		fmt.Printf("Files:   %s\n", strings.Join(names, ", "))
+	}
 	fmt.Println("═══════════════════════════════════════════════════════════════")
 	fmt.Println()
 	fmt.Println(email.Body)
 
 	return nil
+}
+
+// attachmentNames lists real attachments; inline parts are signature logos and
+// tracking pixels and would drown the useful ones.
+func attachmentNames(attachments []mail.Attachment) []string {
+	var names []string
+	for _, a := range attachments {
+		if !a.Inline {
+			names = append(names, fmt.Sprintf("%s (%s)", a.Filename, humanSize(int64(a.Size))))
+		}
+	}
+	return names
 }
 
 func runSend(cmd *cobra.Command, args []string) error {

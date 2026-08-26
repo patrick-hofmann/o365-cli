@@ -25,17 +25,23 @@ func NewClient(accessToken string) *Client {
 
 // Email represents an email message
 type Email struct {
-	ID        string    `json:"id"`
-	Account   string    `json:"account,omitempty"`
-	MessageID string    `json:"message_id"`
-	Subject   string    `json:"subject"`
-	From      string    `json:"from"`
-	To        []string  `json:"to"`
-	Cc        []string  `json:"cc,omitempty"`
-	Date      time.Time `json:"date"`
-	Body      string    `json:"body,omitempty"`
-	Preview   string    `json:"preview,omitempty"`
-	Unread    bool      `json:"unread"`
+	ID        string `json:"id"`
+	Account   string `json:"account,omitempty"`
+	MessageID string `json:"message_id"`
+	// InternetMessageID is the RFC 5322 Message-ID. Unlike MessageID (the Graph
+	// item id) it survives moving the mail to another folder, so it is the only
+	// usable key for tracking a message across a mailbox.
+	InternetMessageID string       `json:"internet_message_id,omitempty"`
+	Subject           string       `json:"subject"`
+	From              string       `json:"from"`
+	To                []string     `json:"to"`
+	Cc                []string     `json:"cc,omitempty"`
+	Date              time.Time    `json:"date"`
+	Body              string       `json:"body,omitempty"`
+	Preview           string       `json:"preview,omitempty"`
+	Unread            bool         `json:"unread"`
+	HasAttachments    bool         `json:"has_attachments,omitempty"`
+	Attachments       []Attachment `json:"attachments,omitempty"`
 }
 
 // Attachment represents an email attachment
@@ -43,6 +49,7 @@ type Attachment struct {
 	Filename    string `json:"filename"`
 	ContentType string `json:"content_type"`
 	Size        int    `json:"size"`
+	Inline      bool   `json:"inline,omitempty"`
 	SavedPath   string `json:"saved_path,omitempty"`
 }
 
@@ -58,18 +65,19 @@ type SendOptions struct {
 
 // GraphMessageResponse represents a message from Graph API
 type GraphMessageResponse struct {
-	ID                string                      `json:"id"`
-	Subject           string                      `json:"subject"`
-	BodyPreview       string                      `json:"bodyPreview"`
-	Body              graph.GraphBodyResponse      `json:"body"`
-	ReceivedDateTime  string                      `json:"receivedDateTime"`
-	IsRead            bool                        `json:"isRead"`
-	From              *graph.GraphEmailAddressWrapper `json:"from"`
+	ID                string                           `json:"id"`
+	Subject           string                           `json:"subject"`
+	BodyPreview       string                           `json:"bodyPreview"`
+	Body              graph.GraphBodyResponse          `json:"body"`
+	ReceivedDateTime  string                           `json:"receivedDateTime"`
+	IsRead            bool                             `json:"isRead"`
+	From              *graph.GraphEmailAddressWrapper  `json:"from"`
 	ToRecipients      []graph.GraphEmailAddressWrapper `json:"toRecipients"`
 	CcRecipients      []graph.GraphEmailAddressWrapper `json:"ccRecipients"`
-	HasAttachments    bool                        `json:"hasAttachments"`
-	InternetMessageId string                      `json:"internetMessageId"`
-	ParentFolderId    string                      `json:"parentFolderId"`
+	HasAttachments    bool                             `json:"hasAttachments"`
+	InternetMessageId string                           `json:"internetMessageId"`
+	ParentFolderId    string                           `json:"parentFolderId"`
+	Attachments       []GraphAttachmentResponse        `json:"attachments"`
 }
 
 // GraphMessagesResponse represents the list response
@@ -100,6 +108,7 @@ type GraphAttachmentResponse struct {
 	Name         string `json:"name"`
 	ContentType  string `json:"contentType"`
 	Size         int    `json:"size"`
+	IsInline     bool   `json:"isInline"`
 	ContentBytes string `json:"contentBytes"`
 }
 
@@ -119,8 +128,8 @@ type Folder struct {
 
 // GraphMessage for sending
 type GraphMessage struct {
-	Subject       string                        `json:"subject"`
-	Body          GraphBody                     `json:"body"`
+	Subject       string                           `json:"subject"`
+	Body          GraphBody                        `json:"body"`
 	ToRecipients  []graph.GraphEmailAddressWrapper `json:"toRecipients"`
 	CcRecipients  []graph.GraphEmailAddressWrapper `json:"ccRecipients,omitempty"`
 	BccRecipients []graph.GraphEmailAddressWrapper `json:"bccRecipients,omitempty"`
@@ -181,6 +190,7 @@ func (c *Client) GetEmail(folderID string, messageID string) (*Email, error) {
 	endpoint := fmt.Sprintf("%s/me/mailFolders/%s/messages/%s", graph.GraphAPIBaseURL, url.PathEscape(folderID), messageID)
 	params := url.Values{}
 	params.Set("$select", "id,subject,body,receivedDateTime,isRead,from,toRecipients,ccRecipients,hasAttachments,internetMessageId")
+	params.Set("$expand", "attachments($select=name,size,contentType,isInline)")
 	endpoint += "?" + params.Encode()
 
 	resp, err := c.DoRequest("GET", endpoint, nil)
@@ -899,10 +909,12 @@ func (c *Client) CreateForwardDraft(messageID, comment string, to, cc, bcc []str
 // graphMessageToEmail converts a Graph API message to our Email struct
 func graphMessageToEmail(msg GraphMessageResponse) Email {
 	email := Email{
-		MessageID: msg.ID,
-		Subject:   msg.Subject,
-		Preview:   msg.BodyPreview,
-		Unread:    !msg.IsRead,
+		MessageID:         msg.ID,
+		InternetMessageID: msg.InternetMessageId,
+		Subject:           msg.Subject,
+		Preview:           msg.BodyPreview,
+		Unread:            !msg.IsRead,
+		HasAttachments:    msg.HasAttachments,
 	}
 
 	if t, err := time.Parse(time.RFC3339, msg.ReceivedDateTime); err == nil {
@@ -915,6 +927,19 @@ func graphMessageToEmail(msg GraphMessageResponse) Email {
 
 	for _, to := range msg.ToRecipients {
 		email.To = append(email.To, graph.FormatGraphAddress(to.EmailAddress))
+	}
+
+	for _, cc := range msg.CcRecipients {
+		email.Cc = append(email.Cc, graph.FormatGraphAddress(cc.EmailAddress))
+	}
+
+	for _, att := range msg.Attachments {
+		email.Attachments = append(email.Attachments, Attachment{
+			Filename:    att.Name,
+			ContentType: att.ContentType,
+			Size:        att.Size,
+			Inline:      att.IsInline,
+		})
 	}
 
 	return email
