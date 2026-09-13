@@ -37,6 +37,7 @@ type OAuthClient struct {
 	app        public.Client
 	tokenCache *TokenCache
 	email      string
+	scopes     []string
 }
 
 // DeviceCodeResult contains info for the Device Code Flow
@@ -49,11 +50,22 @@ type DeviceCodeResult struct {
 
 // NewOAuthClient creates a new OAuth client
 func NewOAuthClient(clientID string, cacheDir string) (*OAuthClient, error) {
+	return newOAuthClient(clientID, cacheDir, Scopes)
+}
+
+func NewReadOnlyOAuthClient(clientID, cacheDir string) (*OAuthClient, error) {
+	return newOAuthClient(clientID, cacheDir, []string{"https://graph.microsoft.com/Mail.Read"})
+}
+
+func newOAuthClient(clientID, cacheDir string, scopes []string) (*OAuthClient, error) {
 	if clientID == "" {
 		clientID = DefaultClientID
 	}
 
 	cache := NewTokenCache(cacheDir)
+	if cache.loadErr != nil {
+		return nil, cache.loadErr
+	}
 
 	app, err := public.New(clientID,
 		public.WithAuthority(Authority),
@@ -67,6 +79,7 @@ func NewOAuthClient(clientID string, cacheDir string) (*OAuthClient, error) {
 		clientID:   clientID,
 		app:        app,
 		tokenCache: cache,
+		scopes:     append([]string(nil), scopes...),
 	}, nil
 }
 
@@ -84,7 +97,7 @@ func (c *OAuthClient) GetAccessToken(ctx context.Context, email string) (string,
 		// Search for specific account
 		for _, account := range accounts {
 			if account.PreferredUsername == email {
-				result, err := c.app.AcquireTokenSilent(ctx, Scopes,
+				result, err := c.app.AcquireTokenSilent(ctx, c.scopes,
 					public.WithSilentAccount(account),
 				)
 				if err == nil {
@@ -120,7 +133,7 @@ func (c *OAuthClient) StartDeviceCodeFlow(ctx context.Context) (*DeviceCodeResul
 	resultChan := make(chan AuthResult, 1)
 
 	// Start device code flow - returns the code immediately
-	deviceCode, err := c.app.AcquireTokenByDeviceCode(ctx, Scopes)
+	deviceCode, err := c.app.AcquireTokenByDeviceCode(ctx, c.scopes)
 	if err != nil {
 		close(resultChan)
 		return nil, nil, fmt.Errorf("failed to start device code flow: %w", err)
@@ -221,7 +234,7 @@ func (c *OAuthClient) GetStatus(ctx context.Context, email string) (*AuthStatus,
 	for _, account := range accounts {
 		if email == "" || account.PreferredUsername == email {
 			// Try to get token to check expiry
-			result, err := c.app.AcquireTokenSilent(ctx, Scopes,
+			result, err := c.app.AcquireTokenSilent(ctx, c.scopes,
 				public.WithSilentAccount(account),
 			)
 			if err != nil {
@@ -253,7 +266,7 @@ func (c *OAuthClient) GetAllStatuses(ctx context.Context) ([]*AuthStatus, error)
 
 	statuses := make([]*AuthStatus, 0, len(accounts))
 	for _, account := range accounts {
-		result, err := c.app.AcquireTokenSilent(ctx, Scopes,
+		result, err := c.app.AcquireTokenSilent(ctx, c.scopes,
 			public.WithSilentAccount(account),
 		)
 		if err != nil {
@@ -291,15 +304,15 @@ func GenerateXOAuth2String(email, accessToken string) string {
 
 // DetailedAuthStatus contains detailed token diagnostic information
 type DetailedAuthStatus struct {
-	Email            string
-	HasCachedToken   bool
-	AccessExpiry     time.Time
-	RefreshPresent   bool
-	SilentRefreshOK  bool
-	LastError        string
-	CacheFile        string
-	CacheSize        int64
-	CachedAccounts   int
+	Email           string
+	HasCachedToken  bool
+	AccessExpiry    time.Time
+	RefreshPresent  bool
+	SilentRefreshOK bool
+	LastError       string
+	CacheFile       string
+	CacheSize       int64
+	CachedAccounts  int
 }
 
 // GetDetailedStatus returns detailed diagnostic information for an account
@@ -331,7 +344,7 @@ func (c *OAuthClient) GetDetailedStatus(ctx context.Context, email string) (*Det
 	for _, account := range accounts {
 		if account.PreferredUsername == email {
 			// Try silent token acquisition to check refresh token
-			result, err := c.app.AcquireTokenSilent(ctx, Scopes,
+			result, err := c.app.AcquireTokenSilent(ctx, c.scopes,
 				public.WithSilentAccount(account),
 			)
 			if err != nil {

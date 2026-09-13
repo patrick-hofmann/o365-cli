@@ -28,9 +28,7 @@ type Email struct {
 	ID        string `json:"id"`
 	Account   string `json:"account,omitempty"`
 	MessageID string `json:"message_id"`
-	// InternetMessageID is the RFC 5322 Message-ID. Unlike MessageID (the Graph
-	// item id) it survives moving the mail to another folder, so it is the only
-	// usable key for tracking a message across a mailbox.
+	// InternetMessageID is the RFC 5322 Message-ID; it is not a unique mailbox item key.
 	InternetMessageID string       `json:"internet_message_id,omitempty"`
 	Subject           string       `json:"subject"`
 	From              string       `json:"from"`
@@ -114,7 +112,8 @@ type GraphAttachmentResponse struct {
 
 // GraphAttachmentsResponse represents the attachments list response
 type GraphAttachmentsResponse struct {
-	Value []GraphAttachmentResponse `json:"value"`
+	Value    []GraphAttachmentResponse `json:"value"`
+	NextLink string                    `json:"@odata.nextLink"`
 }
 
 // Folder represents a mail folder
@@ -404,124 +403,105 @@ func (c *Client) SearchEmailsKQL(folderID, query string, limit int) ([]Email, er
 	return allEmails, nil
 }
 
-// GetAttachments downloads attachments from an email
-func (c *Client) GetAttachments(folderID string, messageID string, saveDir string) ([]Attachment, error) {
-	endpoint := fmt.Sprintf("%s/me/mailFolders/%s/messages/%s/attachments", graph.GraphAPIBaseURL, url.PathEscape(folderID), messageID)
-
-	resp, err := c.DoRequest("GET", endpoint, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var result GraphAttachmentsResponse
-	if err := json.Unmarshal(resp, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
+// GetAttachments downloads attachments into a caller-owned directory.
+func (c *Client) GetAttachments(folderID, messageID, saveDir string) ([]Attachment, error) {
+	endpoint := fmt.Sprintf("%s/me/mailFolders/%s/messages/%s/attachments", graph.GraphAPIBaseURL, url.PathEscape(folderID), url.PathEscape(messageID))
 	var attachments []Attachment
-	for _, att := range result.Value {
-		attachment := Attachment{
-			Filename:    att.Name,
-			ContentType: att.ContentType,
-			Size:        att.Size,
-		}
-
-		if saveDir != "" && att.ContentBytes != "" {
-			if err := os.MkdirAll(saveDir, 0755); err != nil {
-				return nil, fmt.Errorf("failed to create directory: %w", err)
-			}
-
-			content, err := base64.StdEncoding.DecodeString(att.ContentBytes)
-			if err != nil {
-				continue
-			}
-
-			savePath := filepath.Join(saveDir, att.Name)
-			if err := os.WriteFile(savePath, content, 0644); err != nil {
-				return nil, fmt.Errorf("failed to save attachment: %w", err)
-			}
-			attachment.SavedPath = savePath
-		}
-
-		attachments = append(attachments, attachment)
-	}
-
-	return attachments, nil
-}
-
-// ListFolders lists all mail folders
-func (c *Client) ListFolders() ([]Folder, error) {
-	endpoint := fmt.Sprintf("%s/me/mailFolders?$top=100", graph.GraphAPIBaseURL)
-
-	var allFolders []Folder
-
+	seen := map[string]bool{}
 	for endpoint != "" {
+		if seen[endpoint] || len(seen) >= 1000 {
+			return nil, fmt.Errorf("attachment pagination did not terminate")
+		}
+		seen[endpoint] = true
 		resp, err := c.DoRequest("GET", endpoint, nil)
 		if err != nil {
 			return nil, err
 		}
-
-		var result GraphFoldersResponse
+		var result GraphAttachmentsResponse
 		if err := json.Unmarshal(resp, &result); err != nil {
-			return nil, fmt.Errorf("failed to parse response: %w", err)
+			return nil, fmt.Errorf("invalid attachment response")
 		}
-
-		for _, f := range result.Value {
-			allFolders = append(allFolders, Folder{
-				ID:               f.ID,
-				Name:             f.DisplayName,
-				UnreadCount:      f.UnreadItemCount,
-				TotalCount:       f.TotalItemCount,
-				ChildFolderCount: f.ChildFolderCount,
-			})
-
-			if f.ChildFolderCount > 0 {
-				children, err := c.listChildFolders(f.ID, f.DisplayName)
-				if err == nil {
-					allFolders = append(allFolders, children...)
+		for _, att := range result.Value {
+			attachment := Attachment{Filename: att.Name, ContentType: att.ContentType, Size: att.Size, Inline: att.IsInline}
+			if saveDir != "" && att.ContentBytes != "" {
+				if att.Name == "" || att.Name == "." || att.Name == ".." || strings.ContainsAny(att.Name, "/\\\x00") {
+					return nil, fmt.Errorf("unsafe attachment filename")
 				}
+				content, err := base64.StdEncoding.DecodeString(att.ContentBytes)
+				if err != nil {
+					return nil, fmt.Errorf("invalid attachment encoding")
+				}
+				if err := os.MkdirAll(saveDir, 0700); err != nil {
+					return nil, err
+				}
+				info, err := os.Lstat(saveDir)
+				if err != nil || !info.IsDir() {
+					return nil, fmt.Errorf("attachment directory must not be a symlink")
+				}
+				savePath := filepath.Join(saveDir, att.Name)
+				file, err := os.OpenFile(savePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+				if err != nil {
+					return nil, fmt.Errorf("cannot create attachment: %w", err)
+				}
+				_, writeErr := file.Write(content)
+				closeErr := file.Close()
+				if writeErr != nil {
+					return nil, writeErr
+				}
+				if closeErr != nil {
+					return nil, closeErr
+				}
+				attachment.SavedPath = savePath
 			}
+			attachments = append(attachments, attachment)
 		}
-
 		endpoint = result.NextLink
 	}
-
-	return allFolders, nil
+	return attachments, nil
 }
 
-// listChildFolders recursively lists child folders
-func (c *Client) listChildFolders(parentID, parentPath string) ([]Folder, error) {
-	endpoint := fmt.Sprintf("%s/me/mailFolders/%s/childFolders", graph.GraphAPIBaseURL, parentID)
-
-	resp, err := c.DoRequest("GET", endpoint, nil)
-	if err != nil {
-		return nil, err
+// ListFolders returns a complete bounded folder inventory or an explicit error.
+func (c *Client) ListFolders() ([]Folder, error) {
+	type pendingFolder struct {
+		endpoint, parent string
+		depth            int
 	}
-
-	var result GraphFoldersResponse
-	if err := json.Unmarshal(resp, &result); err != nil {
-		return nil, err
-	}
-
-	var folders []Folder
-	for _, f := range result.Value {
-		fullPath := parentPath + "/" + f.DisplayName
-		folders = append(folders, Folder{
-			ID:               f.ID,
-			Name:             fullPath,
-			UnreadCount:      f.UnreadItemCount,
-			TotalCount:       f.TotalItemCount,
-			ChildFolderCount: f.ChildFolderCount,
-		})
-
-		if f.ChildFolderCount > 0 {
-			children, err := c.listChildFolders(f.ID, fullPath)
-			if err == nil {
-				folders = append(folders, children...)
+	queue := []pendingFolder{{endpoint: graph.GraphAPIBaseURL + "/me/mailFolders?$top=100"}}
+	folders := []Folder{}
+	seenPages, seenFolders := map[string]bool{}, map[string]bool{}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		if current.depth > 64 || len(seenPages) >= 10000 || seenPages[current.endpoint] {
+			return nil, fmt.Errorf("folder inventory did not terminate")
+		}
+		seenPages[current.endpoint] = true
+		body, err := c.DoRequest("GET", current.endpoint, nil)
+		if err != nil {
+			return nil, err
+		}
+		var page GraphFoldersResponse
+		if err := json.Unmarshal(body, &page); err != nil {
+			return nil, fmt.Errorf("invalid folder response")
+		}
+		for _, folder := range page.Value {
+			if seenFolders[folder.ID] || folder.ID == "" {
+				return nil, fmt.Errorf("folder inventory contains duplicate or missing ids")
+			}
+			seenFolders[folder.ID] = true
+			name := folder.DisplayName
+			if current.parent != "" {
+				name = current.parent + "/" + name
+			}
+			folders = append(folders, Folder{ID: folder.ID, Name: name, UnreadCount: folder.UnreadItemCount, TotalCount: folder.TotalItemCount, ChildFolderCount: folder.ChildFolderCount})
+			if folder.ChildFolderCount > 0 {
+				queue = append(queue, pendingFolder{endpoint: graph.GraphAPIBaseURL + "/me/mailFolders/" + url.PathEscape(folder.ID) + "/childFolders?$top=100", parent: name, depth: current.depth + 1})
 			}
 		}
+		if page.NextLink != "" {
+			queue = append(queue, pendingFolder{endpoint: page.NextLink, parent: current.parent, depth: current.depth})
+		}
 	}
-
 	return folders, nil
 }
 

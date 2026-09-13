@@ -2,9 +2,12 @@ package graph
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +30,8 @@ const (
 type Client struct {
 	HttpClient  *http.Client
 	AccessToken string
+	ReadOnly    bool
+	Context     context.Context
 }
 
 // NewClient creates a new Graph API client.
@@ -39,65 +44,94 @@ func NewClient(accessToken string) *Client {
 	}
 }
 
-// DoRequest performs an HTTP request to Graph API, retrying while Graph asks
-// us to slow down.
+func NewReadOnlyClient(ctx context.Context, accessToken string) *Client {
+	c := NewClient(accessToken)
+	c.ReadOnly, c.Context = true, ctx
+	return c
+}
+
+func ValidateEndpoint(endpoint string) error {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Scheme != "https" || u.Host != "graph.microsoft.com" || u.User != nil || u.Fragment != "" || !strings.HasPrefix(u.Path, "/v1.0/") {
+		return errors.New("Graph endpoint is outside the assigned origin")
+	}
+	for _, part := range strings.Split(u.Path, "/") {
+		if part == "." || part == ".." || strings.ContainsAny(part, "\\\x00") {
+			return errors.New("Graph endpoint has an invalid path")
+		}
+	}
+	return nil
+}
+
 func (c *Client) DoRequest(method, endpoint string, body []byte) ([]byte, error) {
+	if err := ValidateEndpoint(endpoint); err != nil {
+		return nil, err
+	}
+	if c.ReadOnly && (method != http.MethodGet || body != nil) {
+		return nil, errors.New("this connection permits only non-mutating reads")
+	}
+	ctx := c.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	var lastErr error
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		respBody, retryAfter, err := c.doOnce(method, endpoint, body)
-		if retryAfter == 0 {
+		respBody, wait, err := c.doOnce(ctx, method, endpoint, body)
+		if wait == 0 {
 			return respBody, err
 		}
 		lastErr = err
-		time.Sleep(retryAfter)
+		if attempt == maxRetries-1 {
+			break
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
 	}
-	return nil, fmt.Errorf("giving up after %d throttled attempts: %w", maxRetries, lastErr)
+	return nil, fmt.Errorf("giving up after %d attempts: %w", maxRetries, lastErr)
 }
 
-// doOnce returns a non-zero retryAfter when the request should be repeated.
-func (c *Client) doOnce(method, endpoint string, body []byte) ([]byte, time.Duration, error) {
-	var req *http.Request
-	var err error
-
-	if body != nil {
-		req, err = http.NewRequest(method, endpoint, bytes.NewBuffer(body))
-	} else {
-		req, err = http.NewRequest(method, endpoint, nil)
-	}
+func (c *Client) doOnce(ctx context.Context, method, endpoint string, body []byte) ([]byte, time.Duration, error) {
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to create request: %w", err)
+		return nil, 0, errors.New("cannot create Graph request")
 	}
-
 	req.Header.Set("Authorization", "Bearer "+c.AccessToken)
 	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.HttpClient.Do(req)
+	if c.ReadOnly {
+		req.Header.Set("Prefer", `IdType="ImmutableId"`)
+	}
+	client := *c.HttpClient
+	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return errors.New("Graph redirects are not permitted") }
+	resp, err := client.Do(req)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to send request: %w", err)
+		return nil, 0, errors.New("Graph request failed or was cancelled")
 	}
 	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
+	const maxBody = 32 << 20
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
-		// A body that stops early yields "unexpected end of JSON input" three
-		// layers up, which reads like a Graph bug rather than a dropped read.
-		return nil, fallbackRetryWait, fmt.Errorf("response body truncated: %w", err)
+		return nil, fallbackRetryWait, errors.New("Graph response body was truncated")
 	}
-
-	if resp.StatusCode >= 400 {
-		apiErr := fmt.Errorf("Graph API error (status %d): %s", resp.StatusCode, string(respBody))
+	if len(respBody) > maxBody {
+		return nil, 0, errors.New("Graph response exceeds 32 MiB; narrow the request")
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		apiErr := fmt.Errorf("Graph API returned status %d", resp.StatusCode)
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 			return nil, retryAfter(resp), apiErr
 		}
 		return nil, 0, apiErr
 	}
-
 	return respBody, 0, nil
 }
 
-// retryAfter reads the Retry-After header Graph sends with a 429.
 func retryAfter(resp *http.Response) time.Duration {
-	if secs, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && secs > 0 {
+	if secs, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && secs > 0 && secs <= 60 {
 		return time.Duration(secs) * time.Second
 	}
 	return fallbackRetryWait

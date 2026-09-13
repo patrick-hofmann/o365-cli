@@ -89,6 +89,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&profileFlag, "profile", "", "Permission profile to use")
 
 	// Add subcommands
+	rootCmd.AddCommand(newPodsCommand())
 	rootCmd.AddCommand(authCmd)
 	rootCmd.AddCommand(mailCmd)
 	rootCmd.AddCommand(foldersCmd)
