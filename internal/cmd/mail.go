@@ -27,6 +27,8 @@ var (
 	listLimit      int
 	listUnreadOnly bool
 	listJSON       bool
+	listWithBody   bool
+	listOldest     bool
 )
 
 var mailListCmd = &cobra.Command{
@@ -38,13 +40,17 @@ Examples:
   o365-cli mail list
   o365-cli mail list --folder "Sent Items" --limit 20
   o365-cli mail list --unread
-  o365-cli mail list --json`,
+  o365-cli mail list --json
+  o365-cli mail list --folder Archiv --limit 5000 --with-body`,
 	Annotations: map[string]string{profile.AnnotationKey: "mail.read"},
 	RunE:        runMailList,
 }
 
 // Read Command
-var readFolder string
+var (
+	readFolder string
+	readJSON   bool
+)
 
 var readCmd = &cobra.Command{
 	Use:   "read [message-id]",
@@ -55,7 +61,8 @@ Find the message ID in the output of 'mail list --json'.
 
 Examples:
   o365-cli mail read AAMkAGI2...
-  o365-cli mail read AAMkAGI2... --folder "Sent Items"`,
+  o365-cli mail read AAMkAGI2... --folder "Sent Items"
+  o365-cli mail read AAMkAGI2... --json`,
 	Annotations: map[string]string{profile.AnnotationKey: "mail.read"},
 	Args:        cobra.ExactArgs(1),
 	RunE:        runRead,
@@ -304,9 +311,12 @@ func init() {
 	mailListCmd.Flags().IntVar(&listLimit, "limit", 10, "Maximum number of emails")
 	mailListCmd.Flags().BoolVar(&listUnreadOnly, "unread", false, "Only unread emails")
 	mailListCmd.Flags().BoolVar(&listJSON, "json", false, "Output as JSON")
+	mailListCmd.Flags().BoolVar(&listWithBody, "with-body", false, "Include full body and attachment metadata (implies --json)")
+	mailListCmd.Flags().BoolVar(&listOldest, "oldest-first", false, "Start at the oldest mail, so --limit takes the tail of a folder")
 
 	// Read flags
 	readCmd.Flags().StringVar(&readFolder, "folder", "inbox", "Folder of the email")
+	readCmd.Flags().BoolVar(&readJSON, "json", false, "Output as JSON")
 
 	// Send flags
 	sendCmd.Flags().StringArrayVar(&sendTo, "to", nil, "Recipients (can be specified multiple times)")
@@ -427,17 +437,19 @@ func runMailList(cmd *cobra.Command, args []string) error {
 				results[idx] = result{email: at.Email, err: err}
 				return
 			}
-			emails, err := client.ListEmails(folderID, listLimit, listUnreadOnly)
+			emails, err := client.ListEmails(folderID, listLimit, listUnreadOnly, listWithBody, listOldest)
 			results[idx] = result{emails: emails, email: at.Email, err: err}
 		}(i, at)
 	}
 
 	wg.Wait()
 
-	var allEmails []mail.Email
+	allEmails := []mail.Email{}
+	var failed []string
 	for _, r := range results {
 		if r.err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: %s: %v\n", r.email, r.err)
+			failed = append(failed, r.email)
 			continue
 		}
 		for i := range r.emails {
@@ -450,13 +462,16 @@ func runMailList(cmd *cobra.Command, args []string) error {
 		return allEmails[i].Date.After(allEmails[j].Date)
 	})
 
-	if listJSON {
-		return outputJSON(allEmails)
+	if listJSON || listWithBody {
+		if err := outputJSON(allEmails); err != nil {
+			return err
+		}
+		return incompleteListing(failed)
 	}
 
 	if len(allEmails) == 0 {
 		printInfo("No emails found.")
-		return nil
+		return incompleteListing(failed)
 	}
 
 	multi := isMultiAccount(ctx)
@@ -487,7 +502,17 @@ func runMailList(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("\n%d emails shown\n", len(allEmails))
 
-	return nil
+	return incompleteListing(failed)
+}
+
+// incompleteListing turns skipped accounts into a non-zero exit. Without it a
+// caller that checks only the exit code would treat a truncated listing as a
+// complete one.
+func incompleteListing(failed []string) error {
+	if len(failed) == 0 {
+		return nil
+	}
+	return fmt.Errorf("listing incomplete, no results for: %s", strings.Join(failed, ", "))
 }
 
 func runRead(cmd *cobra.Command, args []string) error {
@@ -509,17 +534,36 @@ func runRead(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if readJSON {
+		return outputJSON(email)
+	}
+
 	fmt.Println()
 	fmt.Println("═══════════════════════════════════════════════════════════════")
 	fmt.Printf("From:    %s\n", email.From)
 	fmt.Printf("To:      %s\n", strings.Join(email.To, ", "))
 	fmt.Printf("Subject: %s\n", email.Subject)
 	fmt.Printf("Date:    %s\n", email.Date.Local().Format(time.RFC1123))
+	if names := attachmentNames(email.Attachments); len(names) > 0 {
+		fmt.Printf("Files:   %s\n", strings.Join(names, ", "))
+	}
 	fmt.Println("═══════════════════════════════════════════════════════════════")
 	fmt.Println()
 	fmt.Println(email.Body)
 
 	return nil
+}
+
+// attachmentNames lists real attachments; inline parts are signature logos and
+// tracking pixels and would drown the useful ones.
+func attachmentNames(attachments []mail.Attachment) []string {
+	var names []string
+	for _, a := range attachments {
+		if !a.Inline {
+			names = append(names, fmt.Sprintf("%s (%s)", a.Filename, humanSize(int64(a.Size))))
+		}
+	}
+	return names
 }
 
 func runSend(cmd *cobra.Command, args []string) error {

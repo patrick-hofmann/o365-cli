@@ -3,7 +3,9 @@ package auth
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"time"
 
@@ -37,6 +39,7 @@ type OAuthClient struct {
 	app        public.Client
 	tokenCache *TokenCache
 	email      string
+	scopes     []string
 }
 
 // DeviceCodeResult contains info for the Device Code Flow
@@ -49,16 +52,32 @@ type DeviceCodeResult struct {
 
 // NewOAuthClient creates a new OAuth client
 func NewOAuthClient(clientID string, cacheDir string) (*OAuthClient, error) {
+	return newOAuthClient(clientID, cacheDir, Scopes, nil)
+}
+
+func NewReadOnlyOAuthClient(clientID, cacheDir string) (*OAuthClient, error) {
+	httpClient, err := PodsHTTPClient()
+	if err != nil {
+		return nil, err
+	}
+	return newOAuthClient(clientID, cacheDir, []string{"https://graph.microsoft.com/Mail.Read"}, httpClient)
+}
+
+func newOAuthClient(clientID, cacheDir string, scopes []string, httpClient *http.Client) (*OAuthClient, error) {
 	if clientID == "" {
 		clientID = DefaultClientID
 	}
 
 	cache := NewTokenCache(cacheDir)
+	if cache.loadErr != nil {
+		return nil, cache.loadErr
+	}
 
-	app, err := public.New(clientID,
-		public.WithAuthority(Authority),
-		public.WithCache(cache),
-	)
+	options := []public.Option{public.WithAuthority(Authority), public.WithCache(cache)}
+	if httpClient != nil {
+		options = append(options, public.WithHTTPClient(httpClient))
+	}
+	app, err := public.New(clientID, options...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create MSAL app: %w", err)
 	}
@@ -67,7 +86,31 @@ func NewOAuthClient(clientID string, cacheDir string) (*OAuthClient, error) {
 		clientID:   clientID,
 		app:        app,
 		tokenCache: cache,
+		scopes:     append([]string(nil), scopes...),
 	}, nil
+}
+
+func (c *OAuthClient) checkReadBoundary(result public.AuthResult, email, homeID string) error {
+	if len(c.scopes) != 1 || c.scopes[0] != "https://graph.microsoft.com/Mail.Read" {
+		return nil
+	}
+	if email != "" && (result.Account.PreferredUsername != email || result.Account.HomeAccountID != homeID) {
+		return errors.New("token refresh changed the assigned account; reconnect")
+	}
+	read := false
+	for _, scope := range result.GrantedScopes {
+		switch scope {
+		case "Mail.Read", "https://graph.microsoft.com/Mail.Read":
+			read = true
+		case "openid", "profile", "offline_access", "email":
+		default:
+			return errors.New("token includes unassigned scopes; reconnect with Mail.Read only")
+		}
+	}
+	if !read {
+		return errors.New("token does not grant Mail.Read")
+	}
+	return nil
 }
 
 // SetEmail sets the email address for account hints
@@ -84,10 +127,16 @@ func (c *OAuthClient) GetAccessToken(ctx context.Context, email string) (string,
 		// Search for specific account
 		for _, account := range accounts {
 			if account.PreferredUsername == email {
-				result, err := c.app.AcquireTokenSilent(ctx, Scopes,
+				result, err := c.app.AcquireTokenSilent(ctx, c.scopes,
 					public.WithSilentAccount(account),
 				)
 				if err == nil {
+					if err := c.checkReadBoundary(result, email, account.HomeAccountID); err != nil {
+						if cleanup := c.app.RemoveAccount(ctx, result.Account); cleanup != nil {
+							return "", errors.New("token boundary changed; discard this isolated connection cache")
+						}
+						return "", err
+					}
 					return result.AccessToken, nil
 				}
 				// Silent acquisition failed - include actual error for diagnostics
@@ -120,7 +169,7 @@ func (c *OAuthClient) StartDeviceCodeFlow(ctx context.Context) (*DeviceCodeResul
 	resultChan := make(chan AuthResult, 1)
 
 	// Start device code flow - returns the code immediately
-	deviceCode, err := c.app.AcquireTokenByDeviceCode(ctx, Scopes)
+	deviceCode, err := c.app.AcquireTokenByDeviceCode(ctx, c.scopes)
 	if err != nil {
 		close(resultChan)
 		return nil, nil, fmt.Errorf("failed to start device code flow: %w", err)
@@ -131,6 +180,15 @@ func (c *OAuthClient) StartDeviceCodeFlow(ctx context.Context) (*DeviceCodeResul
 		defer close(resultChan)
 		result, err := deviceCode.AuthenticationResult(ctx)
 		if err != nil {
+			resultChan <- AuthResult{Error: err}
+			return
+		}
+
+		if err := c.checkReadBoundary(result, "", ""); err != nil {
+			if cleanup := c.app.RemoveAccount(ctx, result.Account); cleanup != nil {
+				resultChan <- AuthResult{Error: errors.New("token scope changed; discard this isolated connection cache")}
+				return
+			}
 			resultChan <- AuthResult{Error: err}
 			return
 		}
@@ -221,7 +279,7 @@ func (c *OAuthClient) GetStatus(ctx context.Context, email string) (*AuthStatus,
 	for _, account := range accounts {
 		if email == "" || account.PreferredUsername == email {
 			// Try to get token to check expiry
-			result, err := c.app.AcquireTokenSilent(ctx, Scopes,
+			result, err := c.app.AcquireTokenSilent(ctx, c.scopes,
 				public.WithSilentAccount(account),
 			)
 			if err != nil {
@@ -253,7 +311,7 @@ func (c *OAuthClient) GetAllStatuses(ctx context.Context) ([]*AuthStatus, error)
 
 	statuses := make([]*AuthStatus, 0, len(accounts))
 	for _, account := range accounts {
-		result, err := c.app.AcquireTokenSilent(ctx, Scopes,
+		result, err := c.app.AcquireTokenSilent(ctx, c.scopes,
 			public.WithSilentAccount(account),
 		)
 		if err != nil {
@@ -291,15 +349,15 @@ func GenerateXOAuth2String(email, accessToken string) string {
 
 // DetailedAuthStatus contains detailed token diagnostic information
 type DetailedAuthStatus struct {
-	Email            string
-	HasCachedToken   bool
-	AccessExpiry     time.Time
-	RefreshPresent   bool
-	SilentRefreshOK  bool
-	LastError        string
-	CacheFile        string
-	CacheSize        int64
-	CachedAccounts   int
+	Email           string
+	HasCachedToken  bool
+	AccessExpiry    time.Time
+	RefreshPresent  bool
+	SilentRefreshOK bool
+	LastError       string
+	CacheFile       string
+	CacheSize       int64
+	CachedAccounts  int
 }
 
 // GetDetailedStatus returns detailed diagnostic information for an account
@@ -331,7 +389,7 @@ func (c *OAuthClient) GetDetailedStatus(ctx context.Context, email string) (*Det
 	for _, account := range accounts {
 		if account.PreferredUsername == email {
 			// Try silent token acquisition to check refresh token
-			result, err := c.app.AcquireTokenSilent(ctx, Scopes,
+			result, err := c.app.AcquireTokenSilent(ctx, c.scopes,
 				public.WithSilentAccount(account),
 			)
 			if err != nil {

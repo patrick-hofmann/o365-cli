@@ -329,3 +329,74 @@ brew upgrade o365-cli
 ## License
 
 MIT License - see LICENSE file.
+
+## OpenApe Pods read-only protocol
+
+`o365-cli pods` is an isolated JSON interface. It never loads the normal CLI
+configuration, migrates the home directory, selects an ambient account, opens a
+browser, or requests write scopes. Supply the exact `--account` and an absolute
+`--cache-dir` owned by this connection. The host broker must protect that directory,
+serialize connection use, enforce assigned folders, and restrict process/network
+access. This interface alone is not an operating-system sandbox.
+
+```sh
+o365-cli pods capabilities
+o365-cli pods login --account pod@example.invalid --cache-dir /absolute/private/cache
+o365-cli pods read --account pod@example.invalid --cache-dir /absolute/private/cache \
+  --operation messages --folder inbox
+```
+
+Login emits a device-code event followed by a connection event, never a token.
+Only `Mail.Read` is requested. The host presents the verification URL to the owner;
+it must not give the login operation to an executing pod. A wrong signed-in account
+is removed from the isolated cache and reported as an error.
+
+Read operations are `folders`, `messages`, `attachments` (metadata), and
+`attachment` (one attachment with content). Message and attachment reads require a
+folder; attachment reads also require immutable message/attachment IDs. Child
+folder inventories use `folders --folder ID`. Each response contains at most one
+bounded page, `nextCursor`, and `complete`. Persist every page before passing its
+cursor with `--cursor`. Follow child folders explicitly; never interpret one page
+or one folder as the complete mailbox. Messages are not date-filtered, allowing a
+full inventory to discover old mail moved into a selected folder.
+
+Pagination remains on the exact collection and preserves the fixed projection;
+foreign origins, redirects, mutation methods and expanded projections are rejected.
+Reads request Microsoft's immutable ID preference. These IDs are stable across
+folder moves within a mailbox, not across archive/export/re-import boundaries:
+[Microsoft documentation](https://learn.microsoft.com/en-us/graph/outlook-immutable-id).
+Use account plus immutable item ID and `changeKey` for versions; Internet Message-ID
+is correlation metadata rather than a unique item key. The host must validate
+returned records, normalize source provenance, and treat message/attachment text as
+untrusted data.
+
+Responses are capped at 32 MiB. Retries are bounded and context-cancellable;
+incomplete or rejected pages fail visibly. Attachment downloads in the normal CLI
+reject unsafe basenames, symlinks at the destination, existing files and invalid
+base64 instead of overwriting unrelated data. The download directory and its
+parents must be caller-owned; Pods uses its kernel-enforced private workspace.
+
+Token updates use private atomic files, OS advisory locks and conflict detection.
+A stale cache object cannot overwrite a newer refresh with `Save` or `Export`.
+Conflicts require retry rather than silently discarding another process's update.
+No new library version was introduced: file locks use the already pinned `x/sys`.
+
+Verification uses synthetic OAuth/Graph transports only: device flow, refresh after
+restart, wrong accounts, cancellation, scope boundaries, pagination, moved old
+messages, redirects, throttling, attachment traversal/symlinks and cache conflicts.
+`go vet ./...`, `go build ./cmd/o365-cli`, and `go test -race ./...` are the local
+Go gates. Windows compilation is checked; platform runtime acceptance and live
+tenant/consent behavior are separate gates. No live mail was used for these tests.
+
+Inside the Pods sandbox, the host may set `PODS_CA_FILE` to an explicitly readable
+snapshot of public CA certificates. OAuth and Graph use that snapshot with TLS
+1.2 or newer, normal hostname verification and redirects disabled; no platform
+trust-service permission or insecure verification switch is required. The host
+must construct the environment itself and pin the snapshot digest. This is the
+only Pods-specific environment input beyond the host's restricted HTTPS proxy;
+account, cache directory and read scope still require explicit arguments.
+
+Pods also checks the returned token boundary after silent refresh: the account's
+username/home identity must match the selected account and granted scopes must be
+`Mail.Read` plus standard OIDC identity scopes. A changed account or additional
+resource permission is rejected and the offending cached account is removed.
