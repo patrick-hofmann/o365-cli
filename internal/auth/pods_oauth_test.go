@@ -55,7 +55,11 @@ func (f *offlineOAuthTransport) RoundTrip(r *http.Request) (*http.Response, erro
 			expiry = 1
 			token = "synthetic-access-initial"
 		}
-		claims, _ := json.Marshal(map[string]any{"aud": DefaultClientID, "exp": time.Now().Add(time.Hour).Unix(), "iat": time.Now().Unix(), "iss": authority + "/v2.0", "tid": "fixture-tenant", "oid": "fixture-user", "sub": "fixture-user", "preferred_username": "pod@example.invalid"})
+		username := "pod@example.invalid"
+		if f.mode == "wrong-account" {
+			username = "other@example.invalid"
+		}
+		claims, _ := json.Marshal(map[string]any{"aud": DefaultClientID, "exp": time.Now().Add(time.Hour).Unix(), "iat": time.Now().Unix(), "iss": authority + "/v2.0", "tid": "fixture-tenant", "oid": "fixture-user", "sub": "fixture-user", "preferred_username": username})
 		id := "header." + base64.RawURLEncoding.EncodeToString(claims) + ".signature"
 		info := base64.RawURLEncoding.EncodeToString([]byte(`{"uid":"fixture-user","utid":"fixture-tenant"}`))
 		scope := r.Form.Get("scope")
@@ -63,6 +67,9 @@ func (f *offlineOAuthTransport) RoundTrip(r *http.Request) (*http.Response, erro
 			scope = strings.Join(Scopes, " ")
 		}
 		f.scopes = append(f.scopes, scope)
+		if f.mode == "excessive-scope" {
+			scope += " https://graph.microsoft.com/Mail.Send"
+		}
 		b, _ := json.Marshal(map[string]any{"access_token": token, "token_type": "Bearer", "expires_in": expiry, "refresh_token": "synthetic-refresh", "id_token": id, "client_info": info, "scope": scope})
 		body = string(b)
 	default:
@@ -174,5 +181,31 @@ func TestPodsOAuthRequestsOnlyReadScope(t *testing.T) {
 		if !strings.Contains(scope, "Mail.Read") || strings.Contains(scope, "Write") || strings.Contains(scope, "Send") || strings.Contains(scope, "Calendars") {
 			t.Fatalf("excessive scopes: %s", scope)
 		}
+	}
+}
+
+func TestPodsRejectsChangedAccountAndExcessiveScopesDuringRefresh(t *testing.T) {
+	for _, mode := range []string{"wrong-account", "excessive-scope"} {
+		t.Run(mode, func(t *testing.T) {
+			fixture := &offlineOAuthTransport{}
+			previous := http.DefaultTransport
+			http.DefaultTransport = fixture
+			t.Cleanup(func() { http.DefaultTransport = previous })
+			client, err := NewReadOnlyOAuthClient("", t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, results, err := client.StartDeviceCodeFlow(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result := <-results; result.Error != nil {
+				t.Fatal(result.Error)
+			}
+			fixture.mode = mode
+			if token, err := client.GetAccessToken(context.Background(), "pod@example.invalid"); err == nil || token != "" {
+				t.Fatal("changed token boundary accepted")
+			}
+		})
 	}
 }

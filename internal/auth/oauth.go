@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -89,6 +90,29 @@ func newOAuthClient(clientID, cacheDir string, scopes []string, httpClient *http
 	}, nil
 }
 
+func (c *OAuthClient) checkReadBoundary(result public.AuthResult, email, homeID string) error {
+	if len(c.scopes) != 1 || c.scopes[0] != "https://graph.microsoft.com/Mail.Read" {
+		return nil
+	}
+	if email != "" && (result.Account.PreferredUsername != email || result.Account.HomeAccountID != homeID) {
+		return errors.New("token refresh changed the assigned account; reconnect")
+	}
+	read := false
+	for _, scope := range result.GrantedScopes {
+		switch scope {
+		case "Mail.Read", "https://graph.microsoft.com/Mail.Read":
+			read = true
+		case "openid", "profile", "offline_access", "email":
+		default:
+			return errors.New("token includes unassigned scopes; reconnect with Mail.Read only")
+		}
+	}
+	if !read {
+		return errors.New("token does not grant Mail.Read")
+	}
+	return nil
+}
+
 // SetEmail sets the email address for account hints
 func (c *OAuthClient) SetEmail(email string) {
 	c.email = email
@@ -107,6 +131,12 @@ func (c *OAuthClient) GetAccessToken(ctx context.Context, email string) (string,
 					public.WithSilentAccount(account),
 				)
 				if err == nil {
+					if err := c.checkReadBoundary(result, email, account.HomeAccountID); err != nil {
+						if cleanup := c.app.RemoveAccount(ctx, result.Account); cleanup != nil {
+							return "", errors.New("token boundary changed; discard this isolated connection cache")
+						}
+						return "", err
+					}
 					return result.AccessToken, nil
 				}
 				// Silent acquisition failed - include actual error for diagnostics
@@ -150,6 +180,15 @@ func (c *OAuthClient) StartDeviceCodeFlow(ctx context.Context) (*DeviceCodeResul
 		defer close(resultChan)
 		result, err := deviceCode.AuthenticationResult(ctx)
 		if err != nil {
+			resultChan <- AuthResult{Error: err}
+			return
+		}
+
+		if err := c.checkReadBoundary(result, "", ""); err != nil {
+			if cleanup := c.app.RemoveAccount(ctx, result.Account); cleanup != nil {
+				resultChan <- AuthResult{Error: errors.New("token scope changed; discard this isolated connection cache")}
+				return
+			}
 			resultChan <- AuthResult{Error: err}
 			return
 		}

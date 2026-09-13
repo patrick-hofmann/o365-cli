@@ -395,3 +395,8 @@ trust-service permission or insecure verification switch is required. The host
 must construct the environment itself and pin the snapshot digest. This is the
 only Pods-specific environment input beyond the host's restricted HTTPS proxy;
 account, cache directory and read scope still require explicit arguments.
+
+Pods also checks the returned token boundary after silent refresh: the account's
+username/home identity must match the selected account and granted scopes must be
+`Mail.Read` plus standard OIDC identity scopes. A changed account or additional
+resource permission is rejected and the offending cached account is removed.
