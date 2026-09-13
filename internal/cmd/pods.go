@@ -39,7 +39,7 @@ func newPodsCommand() *cobra.Command {
 	}
 	encode := func(cmd *cobra.Command, value any) error { return json.NewEncoder(cmd.OutOrStdout()).Encode(value) }
 	command.AddCommand(&cobra.Command{Use: "capabilities", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-		return encode(cmd, map[string]any{"version": 1, "scope": "Mail.Read", "operations": []string{"folders", "messages", "attachments", "attachment"}, "pagination": "bounded-pages", "immutableIds": true, "ambientConfig": false})
+		return encode(cmd, map[string]any{"version": 1, "scope": "Mail.Read", "operations": []string{"folders", "messages", "attachments", "attachment"}, "pagination": "bounded-pages", "immutableIds": true, "ambientConfig": false, "historicalBoundary": "receivedDateTime-inclusive-utc"})
 	}})
 	var request podmail.ReadRequest
 	read := &cobra.Command{Use: "read", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
@@ -66,6 +66,7 @@ func newPodsCommand() *cobra.Command {
 	read.Flags().StringVar(&request.Folder, "folder", "", "Assigned folder id")
 	read.Flags().StringVar(&request.Message, "message", "", "Immutable message id")
 	read.Flags().StringVar(&request.Attachment, "attachment", "", "Attachment id")
+	read.Flags().StringVar(&request.Since, "since", "", "Inclusive received timestamp in UTC, e.g. 2026-06-01T00:00:00Z; messages only")
 	read.Flags().StringVar(&request.Cursor, "cursor", "", "Provider continuation from the preceding page")
 	command.AddCommand(read)
 	command.AddCommand(&cobra.Command{Use: "login", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {

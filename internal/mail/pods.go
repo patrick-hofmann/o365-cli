@@ -8,6 +8,7 @@ import (
 	"github.com/yourname/o365-cli/internal/auth"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/yourname/o365-cli/internal/graph"
 )
@@ -20,6 +21,7 @@ type ReadRequest struct {
 	Message    string
 	Attachment string
 	Cursor     string
+	Since      string
 }
 
 type ReadPage struct {
@@ -39,6 +41,13 @@ func validID(value string) bool {
 
 // Endpoint accepts provider pagination only within the exact selected collection.
 func (r ReadRequest) Endpoint() (string, error) {
+	if r.Since != "" {
+		parsed, err := time.Parse(time.RFC3339, r.Since)
+		if err != nil || parsed.UTC().Format(time.RFC3339) != r.Since || r.Operation != "messages" {
+			return "", errors.New("since requires a canonical UTC timestamp and messages operation")
+		}
+	}
+
 	base := graph.GraphAPIBaseURL + "/me/mailFolders"
 	query := url.Values{"$top": {"10"}}
 	switch r.Operation {
@@ -64,6 +73,9 @@ func (r ReadRequest) Endpoint() (string, error) {
 			}
 			query.Set("$select", messageFields)
 			query.Set("$orderby", "receivedDateTime asc")
+			if r.Since != "" {
+				query.Set("$filter", "receivedDateTime ge "+r.Since)
+			}
 		} else {
 			if !validID(r.Message) {
 				return "", errors.New("explicit message id required")
