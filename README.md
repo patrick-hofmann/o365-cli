@@ -400,3 +400,18 @@ Pods also checks the returned token boundary after silent refresh: the account's
 username/home identity must match the selected account and granted scopes must be
 `Mail.Read` plus standard OIDC identity scopes. A changed account or additional
 resource permission is rejected and the offending cached account is removed.
+
+
+### Bounded historical Pods reads
+
+`o365-cli pods read --account ACCOUNT --cache-dir DIRECTORY --operation messages
+--folder FOLDER --since 2026-06-01T00:00:00Z` applies an inclusive Graph
+`receivedDateTime` filter before fetching message bodies. Omitting `--since`
+preserves full-history behavior. Only canonical UTC timestamps and the messages
+operation accept this option. Pagination must retain the exact filter and read
+contract; altered or missing filter parameters are rejected.
+
+Attachment reads use explicit message identities. The calling broker must bind
+those identities to messages observed inside its assigned historical scope;
+`--since` is deliberately rejected on attachment commands. This follows the
+[Graph message filter and ordering contract](https://learn.microsoft.com/en-us/graph/api/user-list-messages?view=graph-rest-1.0).
