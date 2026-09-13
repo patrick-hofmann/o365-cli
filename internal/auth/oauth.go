@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"net/http"
 	"os"
 	"time"
 
@@ -50,14 +51,18 @@ type DeviceCodeResult struct {
 
 // NewOAuthClient creates a new OAuth client
 func NewOAuthClient(clientID string, cacheDir string) (*OAuthClient, error) {
-	return newOAuthClient(clientID, cacheDir, Scopes)
+	return newOAuthClient(clientID, cacheDir, Scopes, nil)
 }
 
 func NewReadOnlyOAuthClient(clientID, cacheDir string) (*OAuthClient, error) {
-	return newOAuthClient(clientID, cacheDir, []string{"https://graph.microsoft.com/Mail.Read"})
+	httpClient, err := PodsHTTPClient()
+	if err != nil {
+		return nil, err
+	}
+	return newOAuthClient(clientID, cacheDir, []string{"https://graph.microsoft.com/Mail.Read"}, httpClient)
 }
 
-func newOAuthClient(clientID, cacheDir string, scopes []string) (*OAuthClient, error) {
+func newOAuthClient(clientID, cacheDir string, scopes []string, httpClient *http.Client) (*OAuthClient, error) {
 	if clientID == "" {
 		clientID = DefaultClientID
 	}
@@ -67,10 +72,11 @@ func newOAuthClient(clientID, cacheDir string, scopes []string) (*OAuthClient, e
 		return nil, cache.loadErr
 	}
 
-	app, err := public.New(clientID,
-		public.WithAuthority(Authority),
-		public.WithCache(cache),
-	)
+	options := []public.Option{public.WithAuthority(Authority), public.WithCache(cache)}
+	if httpClient != nil {
+		options = append(options, public.WithHTTPClient(httpClient))
+	}
+	app, err := public.New(clientID, options...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create MSAL app: %w", err)
 	}

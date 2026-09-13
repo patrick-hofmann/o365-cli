@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yourname/o365-cli/internal/auth"
 	"net/url"
 	"strings"
 
@@ -123,7 +124,15 @@ func (r ReadRequest) Endpoint() (string, error) {
 }
 
 func Read(ctx context.Context, token, account string, request ReadRequest) (*ReadPage, error) {
-	return readPage(graph.NewReadOnlyClient(ctx, token), account, request)
+	client := graph.NewReadOnlyClient(ctx, token)
+	transport, err := auth.PodsHTTPClient()
+	if err != nil {
+		return nil, err
+	}
+	if transport != nil {
+		client.HttpClient = transport
+	}
+	return readPage(client, account, request)
 }
 
 func readPage(client *graph.Client, account string, request ReadRequest) (*ReadPage, error) {

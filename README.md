@@ -387,3 +387,11 @@ messages, redirects, throttling, attachment traversal/symlinks and cache conflic
 `go vet ./...`, `go build ./cmd/o365-cli`, and `go test -race ./...` are the local
 Go gates. Windows compilation is checked; platform runtime acceptance and live
 tenant/consent behavior are separate gates. No live mail was used for these tests.
+
+Inside the Pods sandbox, the host may set `PODS_CA_FILE` to an explicitly readable
+snapshot of public CA certificates. OAuth and Graph use that snapshot with TLS
+1.2 or newer, normal hostname verification and redirects disabled; no platform
+trust-service permission or insecure verification switch is required. The host
+must construct the environment itself and pin the snapshot digest. This is the
+only Pods-specific environment input beyond the host's restricted HTTPS proxy;
+account, cache directory and read scope still require explicit arguments.
