@@ -415,3 +415,42 @@ Attachment reads use explicit message identities. The calling broker must bind
 those identities to messages observed inside its assigned historical scope;
 `--since` is deliberately rejected on attachment commands. This follows the
 [Graph message filter and ordering contract](https://learn.microsoft.com/en-us/graph/api/user-list-messages?view=graph-rest-1.0).
+
+### Pods workflow mail transport
+
+`workflow capabilities` describes the additive `pods-mail/v1` JSON contract.
+`workflow delta --account ADDRESS` reads a bounded Inbox delta page; continue with
+its exact `next` cursor until a `delta` boundary is returned. Both cursors remain
+bound to the selected account and Inbox. The consumer must persist each page and
+boundary, establish a quiet initial baseline, and freeze a batch before effects.
+`workflow read --account ADDRESS --message IMMUTABLE_ID` reads one message.
+All message requests ask Graph for immutable IDs and retain `changeKey`, folder,
+conversation, From/Sender/Reply-To/To/Cc, list headers and protection metadata.
+
+`workflow move --account ADDRESS --message IMMUTABLE_ID --expected-version VERSION
+--source-folder FOLDER_ID --destination archive` checks the current identity,
+version and source folder, resolves the Archive folder, then attempts one
+folder-scoped POST. It never deletes, sends email or retries the POST. Confirmed
+receipts include before/after IDs, the full returned message and provider request
+ID. Explicit rejection and uncertain post-dispatch results are distinct. A
+transport failure, truncated reply, invalid receipt or 5xx is **unknown**, not
+permission to repeat the move. Existing generic mutating commands also no longer
+retry automatically after response failures. Read-only `pods` mode remains
+unchanged and cannot invoke this move operation.
+
+**Production limitation:** Graph documents folder-scoped move, but its published
+contract does not guarantee `If-Match` on that operation. The transport sends the
+reviewed version but advertises `conditionalMoveVerified: false`. Pods must block
+autonomous archival until that precondition has an independently verified
+provider contract. Controlled transport tests prove request construction and
+one-attempt behavior; they do not prove server-side concurrency semantics.
+Finding a message in Archive alone never establishes who moved it.
+
+The explicit account flag has no ambient-account fallback. Normal CLI profile
+permissions still apply (`mail.read` or `mail.move`); no login, installation,
+schedule or live mailbox mutation is part of this change. `workflow-shapes.toml`
+provides an independently reviewable OpenApe command descriptor. Use a separate
+reviewed installation; do not overwrite an owner's assigned executable in place.
+
+References: [Graph immutable identities](https://learn.microsoft.com/en-us/graph/outlook-immutable-id),
+[Graph move](https://learn.microsoft.com/en-us/graph/api/message-move?view=graph-rest-1.0).

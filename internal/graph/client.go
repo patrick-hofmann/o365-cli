@@ -77,7 +77,7 @@ func (c *Client) DoRequest(method, endpoint string, body []byte) ([]byte, error)
 	var lastErr error
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		respBody, wait, err := c.doOnce(ctx, method, endpoint, body)
-		if wait == 0 {
+		if wait == 0 || method != http.MethodGet {
 			return respBody, err
 		}
 		lastErr = err
