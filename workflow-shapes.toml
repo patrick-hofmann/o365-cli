@@ -1,0 +1,33 @@
+schema = "openape-shapes/v1"
+[cli]
+id = "o365-cli"
+executable = "o365-cli"
+audience = "shapes"
+version = "workflow-1"
+
+[[operation]]
+id = "workflow.delta"
+command = ["workflow", "delta"]
+required_options = ["account"]
+display = "Read inbox changes for {account}"
+action = "read"
+risk = "low"
+resource_chain = ["mail-account:email={account}", "mail-folder:id=inbox", "mail-operation:name=delta"]
+
+[[operation]]
+id = "workflow.read"
+command = ["workflow", "read"]
+required_options = ["account", "message"]
+display = "Read one reviewed message for {account}"
+action = "read"
+risk = "low"
+resource_chain = ["mail-account:email={account}", "mail-message:id={message}"]
+
+[[operation]]
+id = "workflow.move"
+command = ["workflow", "move"]
+required_options = ["account", "message", "expected-version", "source-folder", "destination"]
+display = "Move the reviewed message from {source-folder} to Archive for {account}"
+action = "move"
+risk = "high"
+resource_chain = ["mail-account:email={account}", "mail-folder:id={source-folder}", "mail-message:id={message}", "mail-destination:id={destination}"]

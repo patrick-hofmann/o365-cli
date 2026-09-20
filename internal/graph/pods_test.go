@@ -57,3 +57,17 @@ func TestThrottledReadsCancelPromptlyWithoutLeakingBody(t *testing.T) {
 		t.Fatalf("cancellation: %v, %d calls", err, calls)
 	}
 }
+
+func TestLegacyMutationsDoNotRetryAfterServerErrorOrTruncatedBody(t *testing.T) {
+	for _, status := range []int{429, 503} {
+		client := NewClient("synthetic-secret")
+		calls := 0
+		client.HttpClient.Transport = fixtureTransport(func(_ *http.Request) (*http.Response, error) {
+			calls++
+			return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(""))}, nil
+		})
+		if _, err := client.DoRequest("POST", GraphAPIBaseURL+"/me/messages/id/move", []byte(`{"destinationId":"archive"}`)); err == nil || calls != 1 {
+			t.Fatalf("mutation was retried: %d %v", calls, err)
+		}
+	}
+}
