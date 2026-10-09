@@ -128,3 +128,24 @@ func TestWorkflowBindsDeltaPagesToTheExactAccountAndInbox(t *testing.T) {
 		t.Fatal("read-only move accepted")
 	}
 }
+
+func TestWorkflowMoveAcceptsBase64ChangeKeys(t *testing.T) {
+	request := moveRequest()
+	request.Version = "CQAAABYAAACKHHSq3O/eT5cOYQR9J1iW+AkscXMX"
+	if err := request.Validate(); err != nil {
+		t.Fatalf("base64 changeKey refused: %v", err)
+	}
+	for _, version := range []string{"", "with space", "quote\"", "line\nbreak"} {
+		request.Version = version
+		if request.Validate() == nil {
+			t.Fatalf("unsafe changeKey %q accepted", version)
+		}
+	}
+}
+
+func TestNotAppliedReceiptNamesTheRefusal(t *testing.T) {
+	reply := NotApplied(moveRequest(), errors.New("refused before dispatch"))
+	if reply.Outcome != "notApplied" || reply.Protocol != "pods-mail/v1" || reply.Operation != "move" || reply.Reason != "refused before dispatch" {
+		t.Fatalf("unexpected receipt: %+v", reply)
+	}
+}
