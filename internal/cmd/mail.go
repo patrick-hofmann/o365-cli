@@ -543,6 +543,7 @@ func runRead(cmd *cobra.Command, args []string) error {
 	fmt.Printf("From:    %s\n", email.From)
 	fmt.Printf("To:      %s\n", strings.Join(email.To, ", "))
 	fmt.Printf("Subject: %s\n", email.Subject)
+	fmt.Printf("Categories: %s\n", strings.Join(email.Categories, ", "))
 	fmt.Printf("Date:    %s\n", email.Date.Local().Format(time.RFC1123))
 	if names := attachmentNames(email.Attachments); len(names) > 0 {
 		fmt.Printf("Files:   %s\n", strings.Join(names, ", "))

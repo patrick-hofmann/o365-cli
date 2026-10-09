@@ -32,6 +32,7 @@ The tool uses the **OAuth2 Device Authorization Flow** with a Multi-Tenant Publi
      - `Mail.ReadWrite`
      - `Mail.Send`
      - `Calendars.ReadWrite`
+     - `MailboxSettings.ReadWrite` (inbox rules and category definitions)
      - `offline_access` (for Refresh Tokens)
 
 6. **Done!** No admin consent required for these permissions.
@@ -157,6 +158,41 @@ o365-cli mail query "subject:invoice AND from:finance"
 # Archive from specific senders
 o365-cli mail archive-from sender@example.com --account user@example.com --dry-run
 ```
+
+### Message categories
+
+Read or modify categories on an individual message in any folder. `add` preserves
+existing categories, and `remove` only removes the supplied names. Repeating an
+already applied change does not write again. `set` explicitly replaces the whole
+category list; `clear` explicitly removes every category.
+
+```bash
+o365-cli mail categories get <message-id> --account user@example.com --json
+o365-cli mail categories add <message-id> Newsletter "Project Alpha" --account user@example.com --dry-run --json
+o365-cli mail categories add <message-id> Newsletter --account user@example.com --json
+o365-cli mail categories remove <message-id> Newsletter --account user@example.com --json
+o365-cli mail categories set <message-id> "Invoices, paid" --account user@example.com --json
+o365-cli mail categories clear <message-id> --account user@example.com --dry-run --json
+```
+
+Category names are positional arguments: quote names containing spaces or commas.
+All mutation commands support `--dry-run`, which reads the current state and returns
+the proposed change without writing. JSON receipts include `account`, `message_id`,
+`before`, `categories`, `changed`, `applied`, and `dry_run`. A changed preview has
+`changed: true` and `applied: false`; an already matching message also has
+`applied: false`. Read commands require the `mail.read` profile permission and
+mutations require `mail.modify`, including mutation previews.
+
+Updates read the latest categories before writing and do not retry failed writes
+automatically. Microsoft Graph accepted a stale `If-Match` value in the live
+message-update probe, so these operations do not claim atomic conflict protection.
+Avoid concurrent category writers for the same message: a change made between the
+read and PATCH can be overwritten. After an error, read the categories before retrying. Only the `categories` property is
+patched; message body, read state and folder are unchanged. Message categories
+also appear in the JSON output of `mail list`, `read`, `search`, and `query`.
+These commands assign category names; they do not manage Outlook category colors
+or the mailbox's master category catalog. Microsoft Graph requires `Mail.ReadWrite`
+for message category updates.
 
 ### Calendar
 

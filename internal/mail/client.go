@@ -40,6 +40,7 @@ type Email struct {
 	Unread            bool         `json:"unread"`
 	HasAttachments    bool         `json:"has_attachments,omitempty"`
 	Attachments       []Attachment `json:"attachments,omitempty"`
+	Categories        []string     `json:"categories"`
 }
 
 // Attachment represents an email attachment
@@ -74,6 +75,7 @@ type GraphMessageResponse struct {
 	CcRecipients      []graph.GraphEmailAddressWrapper `json:"ccRecipients"`
 	HasAttachments    bool                             `json:"hasAttachments"`
 	InternetMessageId string                           `json:"internetMessageId"`
+	Categories        []string                         `json:"categories"`
 	ParentFolderId    string                           `json:"parentFolderId"`
 	Attachments       []GraphAttachmentResponse        `json:"attachments"`
 }
@@ -157,10 +159,10 @@ func (c *Client) ListEmails(folderID string, limit int, unreadOnly bool, withBod
 		order = "asc"
 	}
 	params.Set("$orderby", "receivedDateTime "+order)
-	params.Set("$select", "id,subject,bodyPreview,receivedDateTime,isRead,from,toRecipients,hasAttachments,internetMessageId")
+	params.Set("$select", "id,subject,bodyPreview,receivedDateTime,isRead,from,toRecipients,hasAttachments,internetMessageId,categories")
 
 	if withBody {
-		params.Set("$select", "id,subject,body,receivedDateTime,isRead,from,toRecipients,ccRecipients,hasAttachments,internetMessageId")
+		params.Set("$select", "id,subject,body,receivedDateTime,isRead,from,toRecipients,ccRecipients,hasAttachments,internetMessageId,categories")
 		params.Set("$expand", "attachments($select=name,size,contentType,isInline)")
 	}
 
@@ -199,7 +201,7 @@ func (c *Client) ListEmails(folderID string, limit int, unreadOnly bool, withBod
 func (c *Client) GetEmail(folderID string, messageID string) (*Email, error) {
 	endpoint := fmt.Sprintf("%s/me/mailFolders/%s/messages/%s", graph.GraphAPIBaseURL, url.PathEscape(folderID), messageID)
 	params := url.Values{}
-	params.Set("$select", "id,subject,body,receivedDateTime,isRead,from,toRecipients,ccRecipients,hasAttachments,internetMessageId")
+	params.Set("$select", "id,subject,body,receivedDateTime,isRead,from,toRecipients,ccRecipients,hasAttachments,internetMessageId,categories")
 	params.Set("$expand", "attachments($select=name,size,contentType,isInline)")
 	endpoint += "?" + params.Encode()
 
@@ -270,7 +272,7 @@ func (c *Client) ListEmailsFromSenders(folderID string, senderAddresses []string
 	params := url.Values{}
 	params.Set("$top", "100")
 	params.Set("$orderby", "receivedDateTime desc")
-	params.Set("$select", "id,subject,bodyPreview,receivedDateTime,isRead,from,toRecipients,hasAttachments,internetMessageId")
+	params.Set("$select", "id,subject,bodyPreview,receivedDateTime,isRead,from,toRecipients,hasAttachments,internetMessageId,categories")
 
 	currentEndpoint := endpoint + "?" + params.Encode()
 
@@ -314,7 +316,7 @@ func (c *Client) SearchEmails(folderID string, from, subject string, since time.
 	params := url.Values{}
 	params.Set("$top", fmt.Sprintf("%d", pageSize))
 	params.Set("$orderby", "receivedDateTime desc")
-	params.Set("$select", "id,subject,bodyPreview,receivedDateTime,isRead,from,toRecipients,hasAttachments,internetMessageId")
+	params.Set("$select", "id,subject,bodyPreview,receivedDateTime,isRead,from,toRecipients,hasAttachments,internetMessageId,categories")
 
 	var filters []string
 	if from != "" {
@@ -374,7 +376,7 @@ func (c *Client) SearchEmailsKQL(folderID, query string, limit int) ([]Email, er
 	params := url.Values{}
 	params.Set("$top", fmt.Sprintf("%d", pageSize))
 	params.Set("$search", fmt.Sprintf("%q", query))
-	params.Set("$select", "id,subject,bodyPreview,receivedDateTime,isRead,from,toRecipients,hasAttachments,internetMessageId")
+	params.Set("$select", "id,subject,bodyPreview,receivedDateTime,isRead,from,toRecipients,hasAttachments,internetMessageId,categories")
 
 	var allEmails []Email
 	currentEndpoint := endpoint + "?" + params.Encode()
@@ -906,6 +908,7 @@ func graphMessageToEmail(msg GraphMessageResponse) Email {
 		Body:              msg.Body.Content,
 		Unread:            !msg.IsRead,
 		HasAttachments:    msg.HasAttachments,
+		Categories:        append([]string{}, msg.Categories...),
 	}
 
 	if t, err := time.Parse(time.RFC3339, msg.ReceivedDateTime); err == nil {
