@@ -149,3 +149,16 @@ func TestNotAppliedReceiptNamesTheRefusal(t *testing.T) {
 		t.Fatalf("unexpected receipt: %+v", reply)
 	}
 }
+
+func TestWorkflowMoveReceiptLeavesTheMessageBodyOut(t *testing.T) {
+	client, _ := workflowClient(t, func(_ *http.Request) (*http.Response, error) {
+		r := fixtureResponse(`{"id":"immutable-after","changeKey":"v2","parentFolderId":"archive-id","body":{"content":"` + strings.Repeat("x", 300000) + `"}}`)
+		r.StatusCode = 201
+		r.Header = http.Header{"Request-Id": {"receipt-1"}}
+		return r, nil
+	})
+	result, err := Workflow(context.Background(), client, moveRequest())
+	if err != nil || result.Outcome != "confirmed" || len(result.Receipt) > 200 || len(result.Items) != 1 || len(result.Items[0]) > 200 || !strings.Contains(string(result.Receipt), "archive-id") {
+		t.Fatalf("receipt not compact: outcome=%s receipt=%d bytes err=%v", result.Outcome, len(result.Receipt), err)
+	}
+}
