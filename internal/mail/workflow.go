@@ -44,6 +44,24 @@ type WorkflowReply struct {
 
 func (r WorkflowRequest) Validate() error { _, err := r.endpoint(); return err }
 
+// A changeKey is standard base64 and may contain '/' and '+'; it only travels in the If-Match header.
+func validVersion(value string) bool {
+	if value == "" || len(value) > 2048 {
+		return false
+	}
+	for _, char := range value {
+		if char < 0x21 || char > 0x7e || char == '"' {
+			return false
+		}
+	}
+	return true
+}
+
+// NotApplied is the receipt for a request refused before anything was sent to Microsoft Graph.
+func NotApplied(r WorkflowRequest, err error) *WorkflowReply {
+	return &WorkflowReply{Protocol: "pods-mail/v1", Account: r.Account, Operation: r.Operation, Outcome: "notApplied", Reason: err.Error()}
+}
+
 func (r WorkflowRequest) endpoint() (string, error) {
 	address, err := mail.ParseAddress(r.Account)
 	if err != nil || address.Address != r.Account || len(r.Account) > 320 {
@@ -93,7 +111,7 @@ func (r WorkflowRequest) endpoint() (string, error) {
 			}
 			return base + "/messages/" + url.PathEscape(r.Message) + "?" + url.Values{"$select": {workflowFields}}.Encode(), nil
 		}
-		if !validID(r.Version) || !validID(r.Folder) || r.Destination != "archive" {
+		if !validVersion(r.Version) || !validID(r.Folder) || r.Destination != "archive" {
 			return "", errors.New("move requires expected version, exact source folder and archive destination")
 		}
 		return base + "/mailFolders/" + url.PathEscape(r.Folder) + "/messages/" + url.PathEscape(r.Message) + "/move", nil

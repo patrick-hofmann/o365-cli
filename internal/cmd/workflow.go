@@ -28,18 +28,20 @@ func newWorkflowCommand() *cobra.Command {
 				return errors.New("workflow requires an explicit --account; ambient defaults are not accepted")
 			}
 			request.Account = accountFlag
+			// Every error below happens before a Graph request, so callers receive a not-applied receipt instead of an uncertain failure.
+			refuse := func(err error) error { return json.NewEncoder(cmd.OutOrStdout()).Encode(mail.NotApplied(request, err)) }
 			if err := request.Validate(); err != nil {
-				return err
+				return refuse(err)
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), 3*time.Minute)
 			defer cancel()
 			token, err := getAccessTokenForAccount(ctx, request.Account)
 			if err != nil {
-				return err
+				return refuse(err)
 			}
 			reply, err := mail.Workflow(ctx, graph.NewClient(token), request)
 			if err != nil {
-				return err
+				return refuse(err)
 			}
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(reply)
 		}}
