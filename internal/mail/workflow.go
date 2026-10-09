@@ -257,8 +257,11 @@ func Workflow(ctx context.Context, client *graph.Client, r WorkflowRequest) (*Wo
 				result.Reason = "move receipt has an unexpected destination"
 				return result, nil
 			}
+			// The moved message carries its whole body; the receipt only needs the identity and folder.
+			receipt, _ := json.Marshal(message)
+			result.Items = []json.RawMessage{receipt}
 			result.AfterID = message.ID
-			result.Receipt = data
+			result.Receipt = receipt
 		}
 	}
 	result.Outcome = "confirmed"
