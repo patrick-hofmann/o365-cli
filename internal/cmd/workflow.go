@@ -15,14 +15,15 @@ import (
 func newWorkflowCommand() *cobra.Command {
 	command := &cobra.Command{Use: "workflow", Short: "Explicit account-scoped JSON mail transport for Pods", SilenceUsage: true}
 	command.AddCommand(&cobra.Command{Use: "capabilities", Args: cobra.NoArgs, PersistentPreRunE: func(_ *cobra.Command, _ []string) error { return nil }, RunE: func(cmd *cobra.Command, _ []string) error {
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"protocol": "pods-mail/v1", "immutableIds": true, "deltaBoundary": true, "mutationAttempts": 1, "conditionalMoveVerified": false, "operations": []string{"delta", "read", "move"}})
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"protocol": "pods-mail/v1", "immutableIds": true, "deltaBoundary": true, "mutationAttempts": 1, "conditionalMoveVerified": false, "conditionalCategoriesVerified": false, "deltaFolders": []string{"inbox", "sentitems"}, "operations": []string{"delta", "read", "move", "categorize"}})
 	}})
-	for _, operation := range []string{"delta", "read", "move"} {
+	for _, operation := range []string{"delta", "read", "move", "categorize"} {
 		request := mail.WorkflowRequest{Operation: operation}
-		permission := "mail.read"
-		if operation == "move" {
-			permission = "mail.move"
+		permission := map[string]string{"move": "mail.move", "categorize": "mail.modify"}[operation]
+		if permission == "" {
+			permission = "mail.read"
 		}
+		var categories string
 		child := &cobra.Command{Use: operation, Args: cobra.NoArgs, Annotations: map[string]string{profile.AnnotationKey: permission}, RunE: func(cmd *cobra.Command, _ []string) error {
 			if accountFlag == "" {
 				return errors.New("workflow requires an explicit --account; ambient defaults are not accepted")
@@ -30,6 +31,9 @@ func newWorkflowCommand() *cobra.Command {
 			request.Account = accountFlag
 			// Every error below happens before a Graph request, so callers receive a not-applied receipt instead of an uncertain failure.
 			refuse := func(err error) error { return json.NewEncoder(cmd.OutOrStdout()).Encode(mail.NotApplied(request, err)) }
+			if operation == "categorize" && json.Unmarshal([]byte(categories), &request.Categories) != nil {
+				return refuse(errors.New("--categories needs a JSON array of names"))
+			}
 			if err := request.Validate(); err != nil {
 				return refuse(err)
 			}
@@ -47,6 +51,12 @@ func newWorkflowCommand() *cobra.Command {
 		}}
 		if operation == "delta" {
 			child.Flags().StringVar(&request.Cursor, "cursor", "", "Exact delta continuation returned by the preceding page")
+			child.Flags().StringVar(&request.Folder, "folder", "", "inbox (default) or sentitems")
+		}
+		if operation == "categorize" {
+			child.Flags().StringVar(&request.Message, "message", "", "Immutable message id")
+			child.Flags().StringVar(&request.Version, "expected-version", "", "changeKey the categories were read from")
+			child.Flags().StringVar(&categories, "categories", "", "Complete JSON array of the message's categories after the change")
 		}
 		if operation == "read" || operation == "move" {
 			child.Flags().StringVar(&request.Message, "message", "", "Immutable message id")

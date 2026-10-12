@@ -162,3 +162,67 @@ func TestWorkflowMoveReceiptLeavesTheMessageBodyOut(t *testing.T) {
 		t.Fatalf("receipt not compact: outcome=%s receipt=%d bytes err=%v", result.Outcome, len(result.Receipt), err)
 	}
 }
+
+func TestWorkflowDeltaReadsTheSentFolderOnlyWithItsOwnCursor(t *testing.T) {
+	sent := "https://graph.microsoft.com/v1.0/users/pod@example.invalid/mailFolders/sentitems/messages/delta?$deltatoken=sealed"
+	client := graph.NewReadOnlyClient(context.Background(), "synthetic-secret")
+	client.HttpClient.Transport = fixtureTransport(func(r *http.Request) (*http.Response, error) {
+		if !strings.HasSuffix(r.URL.Path, "/users/pod@example.invalid/mailFolders/sentitems/messages/delta") || !strings.Contains(r.URL.Query().Get("$select"), "categories") {
+			t.Fatalf("unexpected sent delta request %s", r.URL)
+		}
+		return fixtureResponse(`{"value":[{"id":"m1","@removed":{"reason":"deleted"}}],"@odata.deltaLink":"` + sent + `"}`), nil
+	})
+	result, err := Workflow(context.Background(), client, WorkflowRequest{Operation: "delta", Account: "pod@example.invalid", Folder: "sentitems"})
+	if err != nil || result.Outcome != "confirmed" || result.Delta != sent || len(result.Items) != 1 {
+		t.Fatalf("sent delta: %+v %v", result, err)
+	}
+	inbox := strings.Replace(sent, "sentitems", "inbox", 1)
+	if _, err := (WorkflowRequest{Operation: "delta", Account: "pod@example.invalid", Folder: "sentitems", Cursor: inbox}).endpoint(); err == nil {
+		t.Fatal("an inbox cursor continued the sent folder")
+	}
+	if _, err := (WorkflowRequest{Operation: "delta", Account: "pod@example.invalid", Folder: "archive"}).endpoint(); err == nil {
+		t.Fatal("an unlisted folder was accepted")
+	}
+}
+
+func categorizeRequest(categories ...string) WorkflowRequest {
+	return WorkflowRequest{Operation: "categorize", Account: "pod@example.invalid", Message: "immutable-1", Version: "CQAAABYAAAA/v1+", Categories: categories}
+}
+
+func TestWorkflowCategorizeWritesTheCompleteListOnceAndVerifiesIt(t *testing.T) {
+	for _, tc := range []struct {
+		name, response string
+		status         int
+		outcome        string
+	}{
+		{"applied", `{"id":"immutable-1","changeKey":"v2","categories":["Behalten","Newsletter"]}`, 200, "confirmed"},
+		{"changed meanwhile", ``, 412, "notApplied"},
+		{"different result", `{"id":"immutable-1","changeKey":"v2","categories":["Newsletter"]}`, 200, "unknown"},
+	} {
+		calls := 0
+		client := graph.NewClient("synthetic-secret")
+		client.HttpClient.Transport = fixtureTransport(func(r *http.Request) (*http.Response, error) {
+			calls++
+			body, _ := io.ReadAll(r.Body)
+			if r.Method != http.MethodPatch || r.URL.Path != "/v1.0/users/pod@example.invalid/messages/immutable-1" || r.Header.Get("If-Match") != "CQAAABYAAAA/v1+" || string(body) != `{"categories":["Newsletter","Behalten"]}` {
+				t.Fatalf("%s: unexpected request %s %s %s", tc.name, r.Method, r.URL.Path, body)
+			}
+			return &http.Response{StatusCode: tc.status, Body: io.NopCloser(strings.NewReader(tc.response)), Header: http.Header{}}, nil
+		})
+		result, err := Workflow(context.Background(), client, categorizeRequest("Newsletter", "Behalten"))
+		if err != nil || result.Outcome != tc.outcome || calls != 1 {
+			t.Fatalf("%s: %+v %v calls=%d", tc.name, result, err, calls)
+		}
+	}
+}
+
+func TestWorkflowCategorizeRefusesIncompleteRequestsBeforeDispatch(t *testing.T) {
+	for _, request := range []WorkflowRequest{categorizeRequest("a", "a"), categorizeRequest("a,b"), categorizeRequest(" padded"), {Operation: "categorize", Account: "pod@example.invalid", Message: "immutable-1", Version: "v1"}, func() WorkflowRequest { r := categorizeRequest("a"); r.Version = ""; return r }()} {
+		if err := request.Validate(); err == nil {
+			t.Fatalf("accepted %+v", request)
+		}
+	}
+	if _, err := Workflow(context.Background(), graph.NewReadOnlyClient(context.Background(), "synthetic-secret"), categorizeRequest("a")); err == nil {
+		t.Fatal("read-only connection changed categories")
+	}
+}

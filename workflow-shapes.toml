@@ -8,11 +8,11 @@ version = "workflow-1"
 [[operation]]
 id = "workflow.delta"
 command = ["workflow", "delta"]
-required_options = ["account"]
-display = "Read inbox changes for {account}"
+required_options = ["account", "folder"]
+display = "Read {folder} changes for {account}"
 action = "read"
 risk = "low"
-resource_chain = ["mail-account:email={account}", "mail-folder:id=inbox", "mail-operation:name=delta"]
+resource_chain = ["mail-account:email={account}", "mail-folder:id={folder}", "mail-operation:name=delta"]
 
 [[operation]]
 id = "workflow.read"
@@ -31,3 +31,12 @@ display = "Move the reviewed message from {source-folder} to Archive for {accoun
 action = "move"
 risk = "high"
 resource_chain = ["mail-account:email={account}", "mail-folder:id={source-folder}", "mail-message:id={message}", "mail-destination:id={destination}"]
+
+[[operation]]
+id = "workflow.categorize"
+command = ["workflow", "categorize"]
+required_options = ["account", "message", "expected-version", "categories"]
+display = "Set the categories of one reviewed message for {account}"
+action = "categorize"
+risk = "medium"
+resource_chain = ["mail-account:email={account}", "mail-message:id={message}"]

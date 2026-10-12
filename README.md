@@ -419,9 +419,10 @@ those identities to messages observed inside its assigned historical scope;
 ### Pods workflow mail transport
 
 `workflow capabilities` describes the additive `pods-mail/v1` JSON contract.
-`workflow delta --account ADDRESS` reads a bounded Inbox delta page; continue with
-its exact `next` cursor until a `delta` boundary is returned. Both cursors remain
-bound to the selected account and Inbox. The consumer must persist each page and
+`workflow delta --account ADDRESS [--folder inbox|sentitems]` reads a bounded
+delta page of the Inbox (default) or Sent Items; continue with its exact `next`
+cursor until a `delta` boundary is returned. Both cursors remain bound to the
+selected account and folder. Messages carry `categories` and `isRead`. The consumer must persist each page and
 boundary, establish a quiet initial baseline, and freeze a batch before effects.
 `workflow read --account ADDRESS --message IMMUTABLE_ID` reads one message.
 All message requests ask Graph for immutable IDs and retain `changeKey`, folder,
@@ -437,6 +438,16 @@ transport failure, truncated reply, invalid receipt or 5xx is **unknown**, not
 permission to repeat the move. Existing generic mutating commands also no longer
 retry automatically after response failures. Read-only `pods` mode remains
 unchanged and cannot invoke this move operation.
+
+`workflow categorize --account ADDRESS --message IMMUTABLE_ID --expected-version
+VERSION --categories '["Name",...]'` replaces the message's categories with the
+complete list in one PATCH carrying `If-Match: VERSION`. The caller reads the
+current categories first and merges its change (unrelated categories stay in the
+list). A 412 or other refusal is **notApplied**; a receipt that does not show
+exactly the requested set, a transport failure or 5xx is **unknown** and is never
+retried. Graph does not document `If-Match` on messages as a guarantee, so
+`conditionalCategoriesVerified` is false: callers keep a single category writer
+per mailbox and verify the result. Requires the `mail.modify` profile permission.
 
 **Production limitation:** Graph documents folder-scoped move, but its published
 contract does not guarantee `If-Match` on that operation. The transport sends the

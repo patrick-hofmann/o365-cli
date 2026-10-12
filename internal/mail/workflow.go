@@ -14,16 +14,20 @@ import (
 	"github.com/yourname/o365-cli/internal/graph"
 )
 
-const workflowFields = "id,changeKey,internetMessageId,conversationId,parentFolderId,subject,body,receivedDateTime,from,sender,replyTo,toRecipients,ccRecipients,hasAttachments,flag,importance,internetMessageHeaders"
+const workflowFields = "id,changeKey,internetMessageId,conversationId,parentFolderId,subject,body,receivedDateTime,sentDateTime,from,sender,replyTo,toRecipients,ccRecipients,hasAttachments,flag,importance,internetMessageHeaders,categories,isRead"
+
+// Delta pages are limited to the folders a Pods mail synchronization observes.
+var deltaFolders = map[string]bool{"inbox": true, "sentitems": true}
 
 type WorkflowRequest struct {
-	Operation   string `json:"operation"`
-	Account     string `json:"account"`
-	Message     string `json:"message,omitempty"`
-	Cursor      string `json:"cursor,omitempty"`
-	Version     string `json:"version,omitempty"`
-	Folder      string `json:"folder,omitempty"`
-	Destination string `json:"destination,omitempty"`
+	Operation   string   `json:"operation"`
+	Account     string   `json:"account"`
+	Message     string   `json:"message,omitempty"`
+	Cursor      string   `json:"cursor,omitempty"`
+	Version     string   `json:"version,omitempty"`
+	Folder      string   `json:"folder,omitempty"`
+	Destination string   `json:"destination,omitempty"`
+	Categories  []string `json:"categories,omitempty"`
 }
 
 type WorkflowReply struct {
@@ -57,6 +61,37 @@ func validVersion(value string) bool {
 	return true
 }
 
+// A complete category list: Outlook stores categories as names, so the list replaces the message's set exactly.
+func validCategories(categories []string) error {
+	if categories == nil || len(categories) > 25 {
+		return errors.New("a category list has at most 25 names")
+	}
+	seen := map[string]bool{}
+	for _, name := range categories {
+		if strings.TrimSpace(name) != name || name == "" || len(name) > 255 || strings.ContainsAny(name, "\r\n\x00,") || seen[name] {
+			return errors.New("category names are unique, trimmed and contain no line breaks or commas")
+		}
+		seen[name] = true
+	}
+	return nil
+}
+
+func sameSet(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, name := range left {
+		seen[name] = true
+	}
+	for _, name := range right {
+		if !seen[name] {
+			return false
+		}
+	}
+	return true
+}
+
 // NotApplied is the receipt for a request refused before anything was sent to Microsoft Graph.
 func NotApplied(r WorkflowRequest, err error) *WorkflowReply {
 	return &WorkflowReply{Protocol: "pods-mail/v1", Account: r.Account, Operation: r.Operation, Outcome: "notApplied", Reason: err.Error()}
@@ -70,10 +105,14 @@ func (r WorkflowRequest) endpoint() (string, error) {
 	base := graph.GraphAPIBaseURL + "/users/" + url.PathEscape(r.Account)
 	switch r.Operation {
 	case "delta":
-		if r.Message != "" || r.Version != "" || r.Folder != "" || r.Destination != "" {
+		folder := r.Folder
+		if folder == "" {
+			folder = "inbox"
+		}
+		if r.Message != "" || r.Version != "" || r.Destination != "" || r.Categories != nil || !deltaFolders[folder] {
 			return "", errors.New("unexpected delta arguments")
 		}
-		path := base + "/mailFolders/inbox/messages/delta"
+		path := base + "/mailFolders/" + folder + "/messages/delta"
 		if r.Cursor == "" {
 			return path + "?" + url.Values{"$select": {workflowFields}, "$top": {"20"}}.Encode(), nil
 		}
@@ -101,8 +140,13 @@ func (r WorkflowRequest) endpoint() (string, error) {
 			return "", errors.New("missing delta continuation token")
 		}
 		return r.Cursor, nil
+	case "categorize":
+		if !validID(r.Message) || r.Cursor != "" || r.Folder != "" || r.Destination != "" || !validVersion(r.Version) || validCategories(r.Categories) != nil {
+			return "", errors.New("categorize requires the message, its expected version and the complete category list")
+		}
+		return base + "/messages/" + url.PathEscape(r.Message), nil
 	case "read", "move":
-		if !validID(r.Message) || r.Cursor != "" {
+		if !validID(r.Message) || r.Cursor != "" || r.Categories != nil {
 			return "", errors.New("explicit immutable message id required")
 		}
 		if r.Operation == "read" {
@@ -138,6 +182,13 @@ func Workflow(ctx context.Context, client *graph.Client, r WorkflowRequest) (*Wo
 	destinationID := ""
 	method := http.MethodGet
 	var body []byte
+	if r.Operation == "categorize" {
+		if client.ReadOnly {
+			return nil, errors.New("read-only connection cannot change categories")
+		}
+		method = http.MethodPatch
+		body, _ = json.Marshal(map[string][]string{"categories": r.Categories})
+	}
 	if r.Operation == "move" {
 		if client.ReadOnly {
 			return nil, errors.New("read-only connection cannot move messages")
@@ -184,7 +235,7 @@ func Workflow(ctx context.Context, client *graph.Client, r WorkflowRequest) (*Wo
 	request.Header.Set("Authorization", "Bearer "+client.AccessToken)
 	request.Header.Set("Prefer", `IdType="ImmutableId"`)
 	request.Header.Set("Content-Type", "application/json")
-	if method == http.MethodPost {
+	if method == http.MethodPost || method == http.MethodPatch {
 		request.Header.Set("If-Match", r.Version)
 	}
 	transport := *client.HttpClient
@@ -237,6 +288,20 @@ func Workflow(ctx context.Context, client *graph.Client, r WorkflowRequest) (*Wo
 		result.Items = page.Items
 		result.Next = page.Next
 		result.Delta = page.Delta
+	} else if r.Operation == "categorize" {
+		var message struct {
+			ID         string    `json:"id"`
+			Version    string    `json:"changeKey"`
+			Categories *[]string `json:"categories"`
+		}
+		// Outlook does not document If-Match as a guarantee; the result itself must show exactly the requested set.
+		if json.Unmarshal(data, &message) != nil || message.ID != r.Message || message.Version == "" || message.Categories == nil || !sameSet(*message.Categories, r.Categories) {
+			result.Reason = "category receipt does not show the requested categories"
+			return result, nil
+		}
+		receipt, _ := json.Marshal(message)
+		result.Items = []json.RawMessage{receipt}
+		result.Receipt = receipt
 	} else {
 		var message struct {
 			ID      string `json:"id"`
