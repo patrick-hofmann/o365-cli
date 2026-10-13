@@ -2,6 +2,7 @@ package mail
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -22,7 +23,7 @@ func workflowClient(t *testing.T, post func(*http.Request) (*http.Response, erro
 		if strings.Contains(r.URL.Path, "/mailFolders/archive") {
 			return fixtureResponse(`{"id":"archive-id"}`), nil
 		}
-		if r.Header.Get("Prefer") != `IdType="ImmutableId"` {
+		if !strings.Contains(r.Header.Get("Prefer"), `IdType="ImmutableId"`) {
 			t.Fatal("missing immutable identity header")
 		}
 		if !strings.Contains(r.URL.Path, "/users/pod@example.invalid/") {
@@ -110,7 +111,7 @@ func TestWorkflowBindsDeltaPagesToTheExactAccountAndInbox(t *testing.T) {
 	cursor := "https://graph.microsoft.com/v1.0/users/pod@example.invalid/mailFolders/inbox/messages/delta?$deltatoken=sealed"
 	client := graph.NewReadOnlyClient(context.Background(), "synthetic-secret")
 	client.HttpClient.Transport = fixtureTransport(func(r *http.Request) (*http.Response, error) {
-		if r.Header.Get("Prefer") != `IdType="ImmutableId"` || r.URL.Query().Get("$top") != "20" {
+		if r.Header.Get("Prefer") != `IdType="ImmutableId", outlook.body-content-type="text", odata.maxpagesize=5` || r.URL.Query().Has("$top") {
 			t.Fatal("unexpected read contract")
 		}
 		return fixtureResponse(`{"value":[],"@odata.deltaLink":"` + cursor + `"}`), nil
@@ -119,7 +120,7 @@ func TestWorkflowBindsDeltaPagesToTheExactAccountAndInbox(t *testing.T) {
 	if err != nil || result.Delta != cursor || result.Outcome != "confirmed" {
 		t.Fatalf("delta result: %+v %v", result, err)
 	}
-	for _, invalid := range []string{strings.Replace(cursor, "pod@example.invalid", "other@example.invalid", 1), strings.Replace(cursor, "inbox", "sentitems", 1), cursor + "&$expand=attachments", cursor + "&$top=1000"} {
+	for _, invalid := range []string{strings.Replace(cursor, "pod@example.invalid", "other@example.invalid", 1), strings.Replace(cursor, "inbox", "sentitems", 1), cursor + "&$expand=attachments", cursor + "&$top=1000", cursor + "&$top=20"} {
 		if _, err := (WorkflowRequest{Operation: "delta", Account: "pod@example.invalid", Cursor: invalid}).endpoint(); err == nil {
 			t.Fatal("foreign cursor accepted")
 		}
@@ -232,5 +233,29 @@ func TestWorkflowCategorizeRefusesIncompleteRequestsBeforeDispatch(t *testing.T)
 	}
 	if _, err := Workflow(context.Background(), graph.NewReadOnlyClient(context.Background(), "synthetic-secret"), categorizeRequest("a")); err == nil {
 		t.Fatal("read-only connection changed categories")
+	}
+}
+
+func TestWorkflowPagesStayBelowThePodsToolOutputLimit(t *testing.T) {
+	long := strings.Repeat("x", 30000)
+	cursor := "https://graph.microsoft.com/v1.0/users/pod@example.invalid/mailFolders/inbox/messages/delta?$deltatoken=sealed"
+	client := graph.NewReadOnlyClient(context.Background(), "synthetic-secret")
+	client.HttpClient.Transport = fixtureTransport(func(r *http.Request) (*http.Response, error) {
+		return fixtureResponse(`{"value":[{"id":"m1","changeKey":"v1","body":{"contentType":"text","content":"` + long + `"},"internetMessageHeaders":[{"name":"Received","value":"hop"},{"name":"List-Unsubscribe","value":"<mailto:u@example.invalid>"}]},{"id":"m2","@removed":{"reason":"deleted"}}],"@odata.deltaLink":"` + cursor + `"}`), nil
+	})
+	result, err := Workflow(context.Background(), client, WorkflowRequest{Operation: "delta", Account: "pod@example.invalid"})
+	if err != nil || result.Outcome != "confirmed" || len(result.Items) != 2 {
+		t.Fatalf("delta result: %+v %v", result, err)
+	}
+	var message struct {
+		Body      struct{ Content string } `json:"body"`
+		Truncated bool                     `json:"bodyTruncated"`
+		Headers   []struct{ Name string }  `json:"internetMessageHeaders"`
+	}
+	if json.Unmarshal(result.Items[0], &message) != nil || len(message.Body.Content) != workflowBodyLimit || !message.Truncated || len(message.Headers) != 1 || message.Headers[0].Name != "List-Unsubscribe" {
+		t.Fatalf("message was not reduced: %s", string(result.Items[0])[:200])
+	}
+	if !strings.Contains(string(result.Items[1]), "@removed") {
+		t.Fatal("removed entry changed")
 	}
 }
