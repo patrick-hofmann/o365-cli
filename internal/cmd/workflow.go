@@ -15,7 +15,7 @@ import (
 func newWorkflowCommand() *cobra.Command {
 	command := &cobra.Command{Use: "workflow", Short: "Explicit account-scoped JSON mail transport for Pods", SilenceUsage: true}
 	command.AddCommand(&cobra.Command{Use: "capabilities", Args: cobra.NoArgs, PersistentPreRunE: func(_ *cobra.Command, _ []string) error { return nil }, RunE: func(cmd *cobra.Command, _ []string) error {
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"protocol": "pods-mail/v1", "immutableIds": true, "deltaBoundary": true, "mutationAttempts": 1, "conditionalMoveVerified": false, "conditionalCategoriesVerified": false, "deltaFolders": []string{"inbox", "sentitems"}, "operations": []string{"delta", "read", "move", "categorize"}})
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"protocol": "pods-mail/v1", "immutableIds": true, "deltaBoundary": true, "mutationAttempts": 1, "conditionalMoveVerified": false, "conditionalCategoriesVerified": false, "deltaFolders": []string{"inbox", "sentitems"}, "operations": []string{"delta", "read", "move", "categorize", "ensure-categories"}})
 	}})
 	for _, operation := range []string{"delta", "read", "move", "categorize"} {
 		operation := operation // go 1.21: each command keeps its own operation inside its closure
@@ -69,6 +69,37 @@ func newWorkflowCommand() *cobra.Command {
 		}
 		command.AddCommand(child)
 	}
+	command.AddCommand(newEnsureCategoriesCommand())
 	return command
+}
+
+func newEnsureCategoriesCommand() *cobra.Command {
+	var categories string
+	child := &cobra.Command{Use: "ensure-categories", Args: cobra.NoArgs, Annotations: map[string]string{profile.AnnotationKey: "mail.modify"}, RunE: func(cmd *cobra.Command, _ []string) error {
+		if accountFlag == "" {
+			return errors.New("workflow requires an explicit --account; ambient defaults are not accepted")
+		}
+		request := mail.WorkflowRequest{Operation: "ensure-categories", Account: accountFlag}
+		refuse := func(err error) error { return json.NewEncoder(cmd.OutOrStdout()).Encode(mail.NotApplied(request, err)) }
+		if json.Unmarshal([]byte(categories), &request.Categories) != nil {
+			return refuse(errors.New("--categories needs a JSON array of names"))
+		}
+		if err := request.Validate(); err != nil {
+			return refuse(err)
+		}
+		ctx, cancel := context.WithTimeout(cmd.Context(), 3*time.Minute)
+		defer cancel()
+		token, err := getCategoryListToken(ctx, request.Account)
+		if err != nil {
+			return refuse(err)
+		}
+		reply, err := mail.EnsureCategories(ctx, graph.NewClient(token), request)
+		if err != nil {
+			return refuse(err)
+		}
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(reply)
+	}}
+	child.Flags().StringVar(&categories, "categories", "", "JSON array of category names the Outlook category list must contain")
+	return child
 }
 func init() { rootCmd.AddCommand(newWorkflowCommand()) }

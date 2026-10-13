@@ -159,6 +159,19 @@ func getAccessTokenForAccount(ctx context.Context, email string) (string, error)
 	return accessToken, nil
 }
 
+// getCategoryListToken obtains a token that may change the account's Outlook category list.
+func getCategoryListToken(ctx context.Context, email string) (string, error) {
+	oauthClient, err := auth.NewCategoryListOAuthClient(cfg.ClientID, cfg.CacheDir)
+	if err != nil {
+		return "", err
+	}
+	accessToken, err := oauthClient.GetAccessToken(ctx, email)
+	if err != nil {
+		return "", fmt.Errorf("%s has not consented to the Outlook category list; run o365-cli auth login again: %w", email, err)
+	}
+	return accessToken, nil
+}
+
 // getAccessToken obtains an access token using requireAccount (for write operations).
 func getAccessToken(ctx context.Context) (string, error) {
 	account, err := requireAccount(ctx)

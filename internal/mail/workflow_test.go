@@ -259,3 +259,38 @@ func TestWorkflowPagesStayBelowThePodsToolOutputLimit(t *testing.T) {
 		t.Fatal("removed entry changed")
 	}
 }
+
+func TestEnsureCategoriesAddsOnlyMissingNamesAndVerifiesTheList(t *testing.T) {
+	listed := []string{`{"displayName":"behalten","color":"preset3"}`}
+	posts := []string{}
+	client := graph.NewClient("synthetic-secret")
+	client.HttpClient.Transport = fixtureTransport(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/v1.0/users/pod@example.invalid/outlook/masterCategories" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		if r.Method == http.MethodPost {
+			body, _ := io.ReadAll(r.Body)
+			posts = append(posts, string(body))
+			listed = append(listed, string(body))
+			return &http.Response{StatusCode: http.StatusCreated, Body: io.NopCloser(strings.NewReader(string(body))), Header: http.Header{}}, nil
+		}
+		return fixtureResponse(`{"value":[` + strings.Join(listed, ",") + `]}`), nil
+	})
+	request := WorkflowRequest{Operation: "ensure-categories", Account: "pod@example.invalid", Categories: []string{"Behalten", "LiCare"}}
+	result, err := EnsureCategories(context.Background(), client, request)
+	if err != nil || result.Outcome != "confirmed" || len(posts) != 1 || !strings.Contains(posts[0], `"displayName":"LiCare"`) || !strings.Contains(posts[0], `"color":"preset`) {
+		t.Fatalf("%+v %v %v", result, err, posts)
+	}
+	// A second run finds every name and changes nothing.
+	if result, err = EnsureCategories(context.Background(), client, request); err != nil || result.Outcome != "confirmed" || len(posts) != 1 {
+		t.Fatalf("second run %+v %v %v", result, err, posts)
+	}
+	if _, err := EnsureCategories(context.Background(), graph.NewReadOnlyClient(context.Background(), "synthetic-secret"), request); err == nil {
+		t.Fatal("read-only connection changed the category list")
+	}
+	for _, bad := range []WorkflowRequest{{Operation: "ensure-categories", Account: "pod@example.invalid"}, {Operation: "ensure-categories", Account: "pod@example.invalid", Message: "x", Categories: []string{"a"}}} {
+		if bad.Validate() == nil {
+			t.Fatalf("accepted %+v", bad)
+		}
+	}
+}
