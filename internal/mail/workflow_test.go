@@ -176,6 +176,14 @@ func TestWorkflowDeltaReadsTheSentFolderOnlyWithItsOwnCursor(t *testing.T) {
 	if err != nil || result.Outcome != "confirmed" || result.Delta != sent || len(result.Items) != 1 {
 		t.Fatalf("sent delta: %+v %v", result, err)
 	}
+	// Graph names the folder of its continuation links in OData key syntax; only the same folder may continue.
+	graphStyle := "https://graph.microsoft.com/v1.0/users/pod@example.invalid/mailFolders('sentitems')/messages/delta?$skiptoken=next"
+	if _, err := (WorkflowRequest{Operation: "delta", Account: "pod@example.invalid", Folder: "sentitems", Cursor: graphStyle}).endpoint(); err != nil {
+		t.Fatalf("Graph continuation refused: %v", err)
+	}
+	if _, err := (WorkflowRequest{Operation: "delta", Account: "pod@example.invalid", Cursor: graphStyle}).endpoint(); err == nil {
+		t.Fatal("a sent continuation continued the inbox")
+	}
 	inbox := strings.Replace(sent, "sentitems", "inbox", 1)
 	if _, err := (WorkflowRequest{Operation: "delta", Account: "pod@example.invalid", Folder: "sentitems", Cursor: inbox}).endpoint(); err == nil {
 		t.Fatal("an inbox cursor continued the sent folder")

@@ -121,7 +121,9 @@ func (r WorkflowRequest) endpoint() (string, error) {
 		}
 		parsed, err := url.Parse(r.Cursor)
 		expected, _ := url.Parse(path)
-		if err != nil || parsed.EscapedPath() != expected.EscapedPath() {
+		// Graph writes the folder of its continuation links in OData key syntax: mailFolders('inbox').
+		keyed, _ := url.Parse(base + "/mailFolders('" + folder + "')/messages/delta")
+		if err != nil || (parsed.EscapedPath() != expected.EscapedPath() && parsed.EscapedPath() != keyed.EscapedPath()) {
 			return "", errors.New("delta cursor changed account or folder")
 		}
 		query, err := url.ParseQuery(parsed.RawQuery)
