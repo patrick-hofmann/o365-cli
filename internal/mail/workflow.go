@@ -16,6 +16,12 @@ import (
 
 const workflowFields = "id,changeKey,internetMessageId,conversationId,parentFolderId,subject,body,receivedDateTime,sentDateTime,from,sender,replyTo,toRecipients,ccRecipients,hasAttachments,flag,importance,internetMessageHeaders,categories,isRead"
 
+// Pods caps one tool output at 200 KB: pages stay small, bodies are plain text and capped, and only the
+// List-Unsubscribe header is kept. Delta and read apply the same reduction, so content versions stay comparable.
+// The page size is a Prefer header: Graph treats $top on a delta query as a limit on all results, not per page.
+const workflowPageSize = "5"
+const workflowBodyLimit = 24000
+
 // Delta pages are limited to the folders a Pods mail synchronization observes.
 var deltaFolders = map[string]bool{"inbox": true, "sentitems": true}
 
@@ -114,7 +120,7 @@ func (r WorkflowRequest) endpoint() (string, error) {
 		}
 		path := base + "/mailFolders/" + folder + "/messages/delta"
 		if r.Cursor == "" {
-			return path + "?" + url.Values{"$select": {workflowFields}, "$top": {"20"}}.Encode(), nil
+			return path + "?" + url.Values{"$select": {workflowFields}}.Encode(), nil
 		}
 		if len(r.Cursor) > 16384 || graph.ValidateEndpoint(r.Cursor) != nil {
 			return "", errors.New("invalid delta cursor")
@@ -134,7 +140,7 @@ func (r WorkflowRequest) endpoint() (string, error) {
 			if len(values) != 1 || !strings.Contains("|$select|$top|$skiptoken|$deltatoken|", "|"+key+"|") {
 				return "", errors.New("unsupported delta query")
 			}
-			if key == "$select" && values[0] != workflowFields || key == "$top" && values[0] != "20" {
+			if key == "$select" && values[0] != workflowFields || key == "$top" && values[0] != workflowPageSize {
 				return "", errors.New("delta cursor changed fields or page size")
 			}
 		}
@@ -235,7 +241,11 @@ func Workflow(ctx context.Context, client *graph.Client, r WorkflowRequest) (*Wo
 		return nil, err
 	}
 	request.Header.Set("Authorization", "Bearer "+client.AccessToken)
-	request.Header.Set("Prefer", `IdType="ImmutableId"`)
+	if method == http.MethodGet {
+		request.Header.Set("Prefer", `IdType="ImmutableId", outlook.body-content-type="text", odata.maxpagesize=`+workflowPageSize)
+	} else {
+		request.Header.Set("Prefer", `IdType="ImmutableId"`)
+	}
 	request.Header.Set("Content-Type", "application/json")
 	if method == http.MethodPost || method == http.MethodPatch {
 		request.Header.Set("If-Match", r.Version)
@@ -287,6 +297,9 @@ func Workflow(ctx context.Context, client *graph.Client, r WorkflowRequest) (*Wo
 			result.Reason = "untrusted delta continuation"
 			return result, nil
 		}
+		for index, item := range page.Items {
+			page.Items[index] = compactMessage(item)
+		}
 		result.Items = page.Items
 		result.Next = page.Next
 		result.Delta = page.Delta
@@ -318,7 +331,7 @@ func Workflow(ctx context.Context, client *graph.Client, r WorkflowRequest) (*Wo
 			result.Reason = "read returned a different identity"
 			return result, nil
 		}
-		result.Items = []json.RawMessage{data}
+		result.Items = []json.RawMessage{compactMessage(data)}
 		if r.Operation == "move" {
 			if message.Folder != destinationID || result.RequestID == "" {
 				result.Reason = "move receipt has an unexpected destination"
@@ -333,4 +346,37 @@ func Workflow(ctx context.Context, client *graph.Client, r WorkflowRequest) (*Wo
 	}
 	result.Outcome = "confirmed"
 	return result, nil
+}
+
+// compactMessage caps the body and keeps only the List-Unsubscribe header; removed delta entries pass unchanged.
+func compactMessage(raw json.RawMessage) json.RawMessage {
+	var message map[string]any
+	if json.Unmarshal(raw, &message) != nil {
+		return raw
+	}
+	if body, ok := message["body"].(map[string]any); ok {
+		if content, ok := body["content"].(string); ok && len([]rune(content)) > workflowBodyLimit {
+			body["content"] = string([]rune(content)[:workflowBodyLimit])
+			message["bodyTruncated"] = true
+		}
+	}
+	if headers, ok := message["internetMessageHeaders"].([]any); ok {
+		kept := []any{}
+		for _, header := range headers {
+			if entry, ok := header.(map[string]any); ok && strings.EqualFold(stringValue(entry["name"]), "list-unsubscribe") {
+				kept = append(kept, entry)
+			}
+		}
+		message["internetMessageHeaders"] = kept
+	}
+	compact, err := json.Marshal(message)
+	if err != nil {
+		return raw
+	}
+	return compact
+}
+
+func stringValue(value any) string {
+	text, _ := value.(string)
+	return text
 }
