@@ -34,7 +34,7 @@ var Scopes = []string{
 }
 
 // CategoryListScope lets the workflow add names to the mailbox's Outlook category list.
-// Login consents to it once; every other command keeps requesting only Scopes.
+// Only `auth login --categories` consents to it; every other command keeps requesting only Scopes.
 const CategoryListScope = "https://graph.microsoft.com/MailboxSettings.ReadWrite"
 
 // OAuthClient manages OAuth2 authentication
@@ -57,14 +57,15 @@ type DeviceCodeResult struct {
 
 // NewOAuthClient creates a new OAuth client
 func NewOAuthClient(clientID string, cacheDir string) (*OAuthClient, error) {
-	client, err := newOAuthClient(clientID, cacheDir, Scopes, nil)
-	if err == nil {
-		client.consent = append(append([]string(nil), Scopes...), CategoryListScope)
-	}
-	return client, err
+	return newOAuthClient(clientID, cacheDir, Scopes, nil)
 }
 
-// NewCategoryListOAuthClient requests only the category list scope, which the default login consents to.
+// ConsentToCategoryList makes the next device code login also ask for CategoryListScope.
+func (c *OAuthClient) ConsentToCategoryList() {
+	c.consent = append(append([]string(nil), c.scopes...), CategoryListScope)
+}
+
+// NewCategoryListOAuthClient requests only the category list scope, which `auth login --categories` consents to.
 func NewCategoryListOAuthClient(clientID, cacheDir string) (*OAuthClient, error) {
 	return newOAuthClient(clientID, cacheDir, []string{CategoryListScope}, nil)
 }

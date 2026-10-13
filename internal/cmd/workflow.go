@@ -75,7 +75,7 @@ func newWorkflowCommand() *cobra.Command {
 
 func newEnsureCategoriesCommand() *cobra.Command {
 	var categories string
-	child := &cobra.Command{Use: "ensure-categories", Args: cobra.NoArgs, Annotations: map[string]string{profile.AnnotationKey: "mail.modify"}, RunE: func(cmd *cobra.Command, _ []string) error {
+	child := &cobra.Command{Use: "ensure-categories", Args: cobra.NoArgs, Annotations: map[string]string{profile.AnnotationKey: "mailbox.categories"}, RunE: func(cmd *cobra.Command, _ []string) error {
 		if accountFlag == "" {
 			return errors.New("workflow requires an explicit --account; ambient defaults are not accepted")
 		}

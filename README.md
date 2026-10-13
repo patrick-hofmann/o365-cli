@@ -240,6 +240,7 @@ allow:
 | `mail.send` | Send emails |
 | `mail.modify` | Mark read/unread |
 | `mail.move` | Move emails between folders |
+| `mailbox.categories` | Add names to the Outlook category list (`workflow ensure-categories`) |
 | `mail.delete` | Trash emails |
 | `calendar.read` | List and view events |
 | `calendar.write` | Create and update events |
@@ -448,6 +449,14 @@ exactly the requested set, a transport failure or 5xx is **unknown** and is neve
 retried. Graph does not document `If-Match` on messages as a guarantee, so
 `conditionalCategoriesVerified` is false: callers keep a single category writer
 per mailbox and verify the result. Requires the `mail.modify` profile permission.
+
+`workflow ensure-categories --account ADDRESS --categories '["Name",...]'` adds
+the names missing from the mailbox's Outlook category list (the new Outlook only
+shows message categories whose name is listed), reads the list back and is
+**confirmed** only when every name is listed. Existing entries and colors stay
+untouched; new names get a stable preset color. It needs the Graph scope
+`MailboxSettings.ReadWrite`, which only `auth login --categories` requests, and
+the `mailbox.categories` profile permission.
 
 **Production limitation:** Graph documents folder-scoped move, but its published
 contract does not guarantee `If-Match` on that operation. The transport sends the

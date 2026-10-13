@@ -21,6 +21,8 @@ var authCmd = &cobra.Command{
 	Long:  "Commands for login, logout, and OAuth2 authentication status.",
 }
 
+var loginCategories bool
+
 var loginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Login to Office 365",
@@ -80,6 +82,7 @@ Examples:
 
 func init() {
 	logoutCmd.Flags().BoolVar(&logoutAll, "all", false, "Logout all accounts")
+	loginCmd.Flags().BoolVar(&loginCategories, "categories", false, "Also allow workflow ensure-categories to add names to the Outlook category list")
 
 	authCmd.AddCommand(loginCmd)
 	authCmd.AddCommand(logoutCmd)
@@ -95,6 +98,9 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	oauthClient, err := auth.NewOAuthClient(cfg.ClientID, cfg.CacheDir)
 	if err != nil {
 		return fmt.Errorf("failed to create OAuth client: %w", err)
+	}
+	if loginCategories {
+		oauthClient.ConsentToCategoryList()
 	}
 
 	// Start device code flow
