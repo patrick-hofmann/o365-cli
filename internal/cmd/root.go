@@ -167,7 +167,7 @@ func getCategoryListToken(ctx context.Context, email string) (string, error) {
 	}
 	accessToken, err := oauthClient.GetAccessToken(ctx, email)
 	if err != nil {
-		return "", fmt.Errorf("%s has not consented to the Outlook category list; run o365-cli auth login again: %w", email, err)
+		return "", fmt.Errorf("%s has not consented to the Outlook category list; run o365-cli auth login --categories: %w", email, err)
 	}
 	return accessToken, nil
 }
