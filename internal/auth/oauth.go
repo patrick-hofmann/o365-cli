@@ -33,6 +33,10 @@ var Scopes = []string{
 	// offline_access is automatically requested by MSAL
 }
 
+// CategoryListScope lets the workflow add names to the mailbox's Outlook category list.
+// Login consents to it once; every other command keeps requesting only Scopes.
+const CategoryListScope = "https://graph.microsoft.com/MailboxSettings.ReadWrite"
+
 // OAuthClient manages OAuth2 authentication
 type OAuthClient struct {
 	clientID   string
@@ -40,6 +44,7 @@ type OAuthClient struct {
 	tokenCache *TokenCache
 	email      string
 	scopes     []string
+	consent    []string
 }
 
 // DeviceCodeResult contains info for the Device Code Flow
@@ -52,7 +57,16 @@ type DeviceCodeResult struct {
 
 // NewOAuthClient creates a new OAuth client
 func NewOAuthClient(clientID string, cacheDir string) (*OAuthClient, error) {
-	return newOAuthClient(clientID, cacheDir, Scopes, nil)
+	client, err := newOAuthClient(clientID, cacheDir, Scopes, nil)
+	if err == nil {
+		client.consent = append(append([]string(nil), Scopes...), CategoryListScope)
+	}
+	return client, err
+}
+
+// NewCategoryListOAuthClient requests only the category list scope, which the default login consents to.
+func NewCategoryListOAuthClient(clientID, cacheDir string) (*OAuthClient, error) {
+	return newOAuthClient(clientID, cacheDir, []string{CategoryListScope}, nil)
 }
 
 func NewReadOnlyOAuthClient(clientID, cacheDir string) (*OAuthClient, error) {
@@ -169,7 +183,11 @@ func (c *OAuthClient) StartDeviceCodeFlow(ctx context.Context) (*DeviceCodeResul
 	resultChan := make(chan AuthResult, 1)
 
 	// Start device code flow - returns the code immediately
-	deviceCode, err := c.app.AcquireTokenByDeviceCode(ctx, c.scopes)
+	scopes := c.scopes
+	if c.consent != nil {
+		scopes = c.consent
+	}
+	deviceCode, err := c.app.AcquireTokenByDeviceCode(ctx, scopes)
 	if err != nil {
 		close(resultChan)
 		return nil, nil, fmt.Errorf("failed to start device code flow: %w", err)

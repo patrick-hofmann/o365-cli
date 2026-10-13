@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"hash/fnv"
 	"io"
 	"net/http"
 	"net/mail"
@@ -153,6 +155,11 @@ func (r WorkflowRequest) endpoint() (string, error) {
 			return "", errors.New("categorize requires the message, its expected version and the complete category list")
 		}
 		return base + "/messages/" + url.PathEscape(r.Message), nil
+	case "ensure-categories":
+		if r.Message != "" || r.Cursor != "" || r.Version != "" || r.Folder != "" || r.Destination != "" || validCategories(r.Categories) != nil || len(r.Categories) == 0 {
+			return "", errors.New("ensure-categories requires only the category names")
+		}
+		return base + "/outlook/masterCategories", nil
 	case "read", "move":
 		if !validID(r.Message) || r.Cursor != "" || r.Categories != nil {
 			return "", errors.New("explicit immutable message id required")
@@ -379,4 +386,88 @@ func compactMessage(raw json.RawMessage) json.RawMessage {
 func stringValue(value any) string {
 	text, _ := value.(string)
 	return text
+}
+
+// EnsureCategories adds the names missing from the account's Outlook category list. Outlook shows a message
+// category only when its name is in that list; existing entries and their colors stay untouched.
+func EnsureCategories(ctx context.Context, client *graph.Client, r WorkflowRequest) (*WorkflowReply, error) {
+	bounded := *client
+	bounded.Context = ctx
+	client = &bounded
+	if r.Operation != "ensure-categories" {
+		return nil, errors.New("unsupported workflow operation")
+	}
+	endpoint, err := r.endpoint()
+	if err != nil {
+		return nil, err
+	}
+	if client.ReadOnly {
+		return nil, errors.New("read-only connection cannot change the category list")
+	}
+	result := &WorkflowReply{Protocol: "pods-mail/v1", Account: r.Account, Operation: r.Operation, Outcome: "notApplied"}
+	listed := func() (map[string]bool, error) {
+		data, err := client.DoRequest(http.MethodGet, endpoint, nil)
+		if err != nil {
+			return nil, err
+		}
+		var list struct {
+			Value []struct {
+				Name string `json:"displayName"`
+			} `json:"value"`
+		}
+		if json.Unmarshal(data, &list) != nil || list.Value == nil {
+			return nil, errors.New("invalid category list")
+		}
+		names := map[string]bool{}
+		for _, entry := range list.Value {
+			names[strings.ToLower(entry.Name)] = true
+		}
+		return names, nil
+	}
+	present, err := listed()
+	if err != nil {
+		result.Reason = "category list unavailable: " + err.Error()
+		return result, nil
+	}
+	created := []string{}
+	for _, name := range r.Categories {
+		if present[strings.ToLower(name)] {
+			continue
+		}
+		body, _ := json.Marshal(map[string]string{"displayName": name, "color": presetColor(name)})
+		if _, err := client.DoRequest(http.MethodPost, endpoint, body); err != nil {
+			result.Outcome = "unknown"
+			result.Reason = "adding " + name + " has no confirmed result"
+			break
+		}
+		created = append(created, name)
+	}
+	present, err = listed()
+	if err != nil {
+		result.Outcome = "unknown"
+		result.Reason = "category list could not be read back"
+		return result, nil
+	}
+	for _, name := range r.Categories {
+		if !present[strings.ToLower(name)] {
+			result.Outcome = "unknown"
+			if result.Reason == "" {
+				result.Reason = "category list does not show " + name
+			}
+			return result, nil
+		}
+	}
+	receipt, _ := json.Marshal(map[string][]string{"created": created, "categories": r.Categories})
+	result.Items = []json.RawMessage{receipt}
+	result.Receipt = receipt
+	result.Outcome = "confirmed"
+	result.Reason = ""
+	return result, nil
+}
+
+// presetColor gives every name the same one of Outlook's 25 preset colors on every mailbox.
+func presetColor(name string) string {
+	hash := fnv.New32a()
+	_, _ = hash.Write([]byte(name))
+	return fmt.Sprintf("preset%d", hash.Sum32()%25)
 }
