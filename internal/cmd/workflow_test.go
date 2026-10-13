@@ -29,3 +29,19 @@ func TestWorkflowRejectsAmbientAccountBeforeAuthentication(t *testing.T) {
 		t.Fatalf("ambient account accepted: %v", err)
 	}
 }
+func TestWorkflowSubcommandsKeepTheirOwnOperation(t *testing.T) {
+	saved := accountFlag
+	defer func() { accountFlag = saved }()
+	accountFlag = "owner@example.invalid"
+	// An invalid folder is refused by request validation, before authentication; delta must not demand --categories.
+	command := newWorkflowCommand()
+	var output bytes.Buffer
+	command.SetOut(&output)
+	command.SetArgs([]string{"delta", "--folder", "drafts"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(output.String(), "--categories") || !strings.Contains(output.String(), `"operation":"delta"`) || !strings.Contains(output.String(), "unexpected delta arguments") {
+		t.Fatal(output.String())
+	}
+}

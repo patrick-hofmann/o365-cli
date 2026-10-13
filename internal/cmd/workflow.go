@@ -18,6 +18,7 @@ func newWorkflowCommand() *cobra.Command {
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"protocol": "pods-mail/v1", "immutableIds": true, "deltaBoundary": true, "mutationAttempts": 1, "conditionalMoveVerified": false, "conditionalCategoriesVerified": false, "deltaFolders": []string{"inbox", "sentitems"}, "operations": []string{"delta", "read", "move", "categorize"}})
 	}})
 	for _, operation := range []string{"delta", "read", "move", "categorize"} {
+		operation := operation // go 1.21: each command keeps its own operation inside its closure
 		request := mail.WorkflowRequest{Operation: operation}
 		permission := map[string]string{"move": "mail.move", "categorize": "mail.modify"}[operation]
 		if permission == "" {
