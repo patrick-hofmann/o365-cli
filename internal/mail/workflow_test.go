@@ -294,3 +294,26 @@ func TestEnsureCategoriesAddsOnlyMissingNamesAndVerifiesTheList(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkflowReadPreservesCompleteLongBody(t *testing.T) {
+	content := strings.Repeat("long text ", 6000) + "INVOICE AT THE END"
+	raw, _ := json.Marshal(map[string]any{"id": "immutable-before", "changeKey": "v1", "parentFolderId": "inbox-id", "body": map[string]string{"contentType": "text", "content": content}})
+	client := graph.NewClient("synthetic-secret")
+	client.HttpClient.Transport = fixtureTransport(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodGet || !strings.Contains(r.Header.Get("Prefer"), `outlook.body-content-type="text"`) {
+			t.Fatal("unexpected request")
+		}
+		return fixtureResponse(string(raw)), nil
+	})
+	result, err := Workflow(context.Background(), client, WorkflowRequest{Operation: "read", Account: "pod@example.invalid", Message: "immutable-before"})
+	if err != nil || result.Outcome != "confirmed" || len(result.Items) != 1 {
+		t.Fatalf("read failed: %v %#v", err, result)
+	}
+	var message struct {
+		Body      struct{ Content string } `json:"body"`
+		Truncated bool                     `json:"bodyTruncated"`
+	}
+	if json.Unmarshal(result.Items[0], &message) != nil || message.Body.Content != content || message.Truncated {
+		t.Fatal("single-message read lost content")
+	}
+}

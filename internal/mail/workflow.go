@@ -18,8 +18,8 @@ import (
 
 const workflowFields = "id,changeKey,internetMessageId,conversationId,parentFolderId,subject,body,receivedDateTime,sentDateTime,from,sender,replyTo,toRecipients,ccRecipients,hasAttachments,flag,importance,internetMessageHeaders,categories,isRead"
 
-// Pods caps one tool output at 200 KB: pages stay small, bodies are plain text and capped, and only the
-// List-Unsubscribe header is kept. Delta and read apply the same reduction, so content versions stay comparable.
+// Delta pages keep bounded previews. A single-message read preserves the complete body;
+// consumers must refetch truncated previews before deriving content versions or taking action.
 // The page size is a Prefer header: Graph treats $top on a delta query as a limit on all results, not per page.
 const workflowPageSize = "5"
 const workflowBodyLimit = 24000
@@ -305,7 +305,7 @@ func Workflow(ctx context.Context, client *graph.Client, r WorkflowRequest) (*Wo
 			return result, nil
 		}
 		for index, item := range page.Items {
-			page.Items[index] = compactMessage(item)
+			page.Items[index] = compactMessage(item, true)
 		}
 		result.Items = page.Items
 		result.Next = page.Next
@@ -338,7 +338,7 @@ func Workflow(ctx context.Context, client *graph.Client, r WorkflowRequest) (*Wo
 			result.Reason = "read returned a different identity"
 			return result, nil
 		}
-		result.Items = []json.RawMessage{compactMessage(data)}
+		result.Items = []json.RawMessage{compactMessage(data, false)}
 		if r.Operation == "move" {
 			if message.Folder != destinationID || result.RequestID == "" {
 				result.Reason = "move receipt has an unexpected destination"
@@ -355,14 +355,14 @@ func Workflow(ctx context.Context, client *graph.Client, r WorkflowRequest) (*Wo
 	return result, nil
 }
 
-// compactMessage caps the body and keeps only the List-Unsubscribe header; removed delta entries pass unchanged.
-func compactMessage(raw json.RawMessage) json.RawMessage {
+// compactMessage optionally caps previews and keeps only the List-Unsubscribe header.
+func compactMessage(raw json.RawMessage, preview bool) json.RawMessage {
 	var message map[string]any
 	if json.Unmarshal(raw, &message) != nil {
 		return raw
 	}
 	if body, ok := message["body"].(map[string]any); ok {
-		if content, ok := body["content"].(string); ok && len([]rune(content)) > workflowBodyLimit {
+		if content, ok := body["content"].(string); ok && preview && len([]rune(content)) > workflowBodyLimit {
 			body["content"] = string([]rune(content)[:workflowBodyLimit])
 			message["bodyTruncated"] = true
 		}
