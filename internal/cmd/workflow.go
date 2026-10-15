@@ -69,7 +69,7 @@ func newWorkflowCommand() *cobra.Command {
 		}
 		command.AddCommand(child)
 	}
-	command.AddCommand(newEnsureCategoriesCommand())
+	command.AddCommand(newEnsureCategoriesCommand(), newProtectedArchiveCommand(), newArchiveHistoryCommand(), newArchiveInspectCommand(), newArchiveReconcileCommand(), newReviewArchiveCommand())
 	return command
 }
 
