@@ -1,0 +1,25 @@
+{
+  "name": "@openape/o365-automation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./dist/index.js",
+  "scripts": {
+    "build": "tsc && node scripts/build-parser.mjs && node scripts/build-recipe.mjs",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "html-to-text": "10.0.1",
+    "fflate": "0.8.3",
+    "pdfjs-dist": "6.3.289"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/node": "24.0.0",
+    "vitest": "4.1.10",
+    "tsup": "8.5.1"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

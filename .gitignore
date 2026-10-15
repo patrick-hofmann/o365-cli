@@ -35,11 +35,13 @@ go.work
 .DS_Store
 Thumbs.db
 
-# Config (enthält evtl. Client IDs)
-# config.yaml sollte nicht committed werden wenn eigene Client ID verwendet wird
+# Configuration may contain client IDs; do not commit personal config.yaml files.
 # .o365-mail-cli/
 
-# Token files (NIEMALS committen!)
+# Token files (never commit)
 token.json
 *.token
 o365-mail-cli
+
+# Independent automation package dependencies
+node_modules/
