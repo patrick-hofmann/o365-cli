@@ -17,14 +17,15 @@ import (
 // ArchiveRequest is the complete reviewed object. Every field belongs in the
 // exact command approved by ape-shell; display text never supplies authority.
 type ArchiveRequest struct {
-	Account        string `json:"account"`
-	Message        string `json:"message"`
-	ContentVersion string `json:"contentVersion"`
-	Sender         string `json:"sender"`
-	Subject        string `json:"subject"`
-	Folder         string `json:"folder"`
-	Destination    string `json:"destination"`
-	OperationID    string `json:"operationId"`
+	Account        string     `json:"account"`
+	Message        string     `json:"message"`
+	ContentVersion string     `json:"contentVersion"`
+	Sender         string     `json:"sender"`
+	Subject        string     `json:"subject"`
+	Folder         string     `json:"folder"`
+	Destination    string     `json:"destination"`
+	OperationID    string     `json:"operationId"`
+	Gate           *LabelGate `json:"gate,omitempty"`
 }
 
 type ArchiveReceipt struct {
@@ -104,7 +105,18 @@ func ArchiveContentVersion(raw json.RawMessage) (string, error) {
 	return "content-v2:" + hex.EncodeToString(hash[:]), nil
 }
 
+func sameArchiveRequest(left, right ArchiveRequest) bool {
+	l, _ := json.Marshal(left)
+	r, _ := json.Marshal(right)
+	return bytes.Equal(l, r)
+}
+
 func (r ArchiveRequest) Validate() error {
+	if r.Gate != nil {
+		if err := r.Gate.Validate(); err != nil {
+			return err
+		}
+	}
 	if err := (WorkflowRequest{Operation: "move", Account: r.Account, Message: r.Message, Version: "preflight", Folder: r.Folder, Destination: r.Destination}).Validate(); err != nil {
 		return err
 	}
@@ -132,6 +144,9 @@ func ProtectedArchive(ctx context.Context, client *graph.Client, journalRoot str
 		return nil, err
 	}
 	journal, err := openArchiveJournal(journalRoot, request.Account)
+	if errors.Is(err, ErrMailboxBusy) {
+		return &ArchiveReceipt{Protocol: "o365-archive/v1", Request: request, Outcome: "notApplied", Reason: err.Error()}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -150,6 +165,18 @@ func ProtectedArchive(ctx context.Context, client *graph.Client, journalRoot str
 	if json.Unmarshal(before.Items[0], &message) != nil || err != nil || message.ID != request.Message || message.Folder != request.Folder || version != request.ContentVersion {
 		result.Reason = "message identity, folder or content changed after review"
 		return result, nil
+	}
+	if request.Gate != nil {
+		current, parseErr := parseLabelMessage(before.Items[0])
+		inbox, inboxErr := inboxID(ctx, client, request.Account)
+		if parseErr != nil || inboxErr != nil {
+			result.Reason = "fresh archive eligibility unavailable"
+			return result, nil
+		}
+		if outcome, reason := request.Gate.check(current, inbox); outcome != "" {
+			result.Reason = "archive eligibility: " + reason
+			return result, nil
+		}
 	}
 	subject := ""
 	if message.Subject != nil {
@@ -178,7 +205,11 @@ func ProtectedArchive(ctx context.Context, client *graph.Client, journalRoot str
 		result.Reason = moved.Reason
 		switch moved.Outcome {
 		case "confirmed":
-			result.Outcome = "archived"
+			if archiveReadback(ctx, client, request.Account, moved) {
+				result.Outcome = "archived"
+			} else {
+				result.Reason = "move receipt has no confirmed provider folder readback"
+			}
 		case "notApplied":
 			result.Outcome = "notApplied"
 		}
@@ -187,6 +218,25 @@ func ProtectedArchive(ctx context.Context, client *graph.Client, journalRoot str
 		return nil, err
 	}
 	return result, nil
+}
+
+func archiveReadback(ctx context.Context, client *graph.Client, account string, moved *WorkflowReply) bool {
+	var expected struct {
+		ID     string `json:"id"`
+		Folder string `json:"parentFolderId"`
+	}
+	if json.Unmarshal(moved.Receipt, &expected) != nil || expected.ID != moved.AfterID || !validID(expected.Folder) {
+		return false
+	}
+	read, err := Workflow(ctx, client, WorkflowRequest{Operation: "read", Account: account, Message: moved.AfterID})
+	if err != nil || read.Outcome != "confirmed" || len(read.Items) != 1 {
+		return false
+	}
+	var current struct {
+		ID     string `json:"id"`
+		Folder string `json:"parentFolderId"`
+	}
+	return json.Unmarshal(read.Items[0], &current) == nil && current.ID == expected.ID && current.Folder == expected.Folder
 }
 
 // ReviewArchive returns the canonical object shown in an exact approval. It

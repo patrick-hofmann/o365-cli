@@ -14,9 +14,16 @@ import (
 
 func newProtectedArchiveCommand() *cobra.Command {
 	var request mail.ArchiveRequest
-	var journal string
+	var journal, gateJSON string
 	command := &cobra.Command{Use: "archive", Short: "Archive one exactly reviewed message with a shared durable journal", Args: cobra.NoArgs, Annotations: map[string]string{profile.AnnotationKey: "mail.move"}, RunE: func(cmd *cobra.Command, _ []string) error {
 		request.Account = accountFlag
+		if gateJSON != "" {
+			var gate mail.LabelGate
+			if err := decodeLabelJSON(gateJSON, &gate); err != nil {
+				return err
+			}
+			request.Gate = &gate
+		}
 		if err := request.Validate(); err != nil {
 			return err
 		}
@@ -43,11 +50,12 @@ func newProtectedArchiveCommand() *cobra.Command {
 	command.Flags().StringVar(&request.Destination, "destination", "", "Exactly archive")
 	command.Flags().StringVar(&request.OperationID, "operation", "", "Stable id retained across retries")
 	command.Flags().StringVar(&journal, "journal", "", "Existing private shared mailbox journal directory")
+	command.Flags().StringVar(&gateJSON, "gate", "", "Exact reviewed label eligibility gate JSON")
 	return command
 }
 
 func newReviewArchiveCommand() *cobra.Command {
-	var message, operation string
+	var message, operation, gateJSON string
 	command := &cobra.Command{Use: "review-archive", Short: "Read the complete object to request an exact archive approval", Args: cobra.NoArgs, Annotations: map[string]string{profile.AnnotationKey: "mail.read"}, RunE: func(cmd *cobra.Command, _ []string) error {
 		request := mail.WorkflowRequest{Operation: "read", Account: accountFlag, Message: message}
 		if err := request.Validate(); err != nil {
@@ -70,9 +78,20 @@ func newReviewArchiveCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		if gateJSON != "" {
+			var gate mail.LabelGate
+			if err := decodeLabelJSON(gateJSON, &gate); err != nil {
+				return err
+			}
+			reviewed.Gate = &gate
+			if err := reviewed.Validate(); err != nil {
+				return err
+			}
+		}
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"protocol": "o365-archive/v1", "request": reviewed, "message": reply.Items[0]})
 	}}
 	command.Flags().StringVar(&message, "message", "", "Immutable message id")
 	command.Flags().StringVar(&operation, "operation", "", "Stable operation id for this review")
+	command.Flags().StringVar(&gateJSON, "gate", "", "Label eligibility gate to bind in the exact reviewed request")
 	return command
 }

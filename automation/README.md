@@ -59,7 +59,7 @@ decision. The CLI appends the observation, preserving the original receipt.
 It performs no provider call. An old operation is never replayed; confirmed
 non-application only permits a new operation with a separate authorization.
 Every unresolved or consumed historical hold for that message must be reviewed.
-Journal schema 3 is refused by older binaries; retain the pre-cutover backup
+Journal schema 4 is refused by older binaries; retain the pre-cutover backup
 instead of opening a new journal with an old tool.
 
 ## Delivering the candidate
@@ -80,3 +80,20 @@ exercise `review-archive`, refusal of raw move and exact once authorization with
 synthetic fixtures, and pin the CLI, adapter, recipe and parser manifests together.
 The provider's final preflight and move are separate requests; this preserves the
 existing change/folder checks but does not promise an atomic provider compare-and-move.
+
+## Shared label decisions
+
+Independent recipes use `workflow label-snapshot`, perform their assessment, then
+call `workflow decide-label` with a stable retained operation ID and a declared
+category dimension and eligibility gate. All writers and protected archivers
+must receive the exact same private journal directory. Label intent, provider
+readback and explicit uncertainty reconciliation live beside historical archive
+receipts in journal schema 4. Old raw `workflow categorize` and `workflow move`
+commands refuse execution. Personal policies, prompts and recipe state remain
+outside this product repository.
+
+For thread assessment, `workflow thread-evidence` returns immutable full-body
+pages with exact Sent Items identity and draft status. Follow all continuation
+pages before calling the evidence complete. Neither paging nor the local lock
+makes external Outlook changes atomic. See the CLI README for the request,
+gate, receipt and operator reconciliation contracts.

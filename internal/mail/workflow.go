@@ -16,7 +16,7 @@ import (
 	"github.com/yourname/o365-cli/internal/graph"
 )
 
-const workflowFields = "id,changeKey,internetMessageId,conversationId,parentFolderId,subject,body,receivedDateTime,sentDateTime,from,sender,replyTo,toRecipients,ccRecipients,hasAttachments,flag,importance,internetMessageHeaders,categories,isRead"
+const workflowFields = "id,changeKey,internetMessageId,conversationId,parentFolderId,subject,body,receivedDateTime,sentDateTime,from,sender,replyTo,toRecipients,ccRecipients,hasAttachments,flag,importance,internetMessageHeaders,categories,isRead,isDraft,webLink"
 
 // Delta pages keep bounded previews. A single-message read preserves the complete body;
 // consumers must refetch truncated previews before deriving content versions or taking action.

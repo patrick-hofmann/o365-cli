@@ -24,6 +24,15 @@ func archiveFixtureClient(t *testing.T, raw string, outcome string) (*graph.Clie
 			t.Fatal("wrong account")
 		}
 		if r.Method == "GET" {
+			if strings.HasSuffix(r.URL.Path, "/messages/immutable-after") {
+				if outcome == "readback-fails" {
+					return nil, errors.New("synthetic readback unavailable")
+				}
+				confirmed := strings.Replace(raw, `"id":"immutable-before"`, `"id":"immutable-after"`, 1)
+				confirmed = strings.Replace(confirmed, `"parentFolderId":"inbox-id"`, `"parentFolderId":"archive-id"`, 1)
+				confirmed = strings.Replace(confirmed, `"changeKey":"v1"`, `"changeKey":"v2"`, 1)
+				return fixtureResponse(confirmed), nil
+			}
 			if strings.Contains(r.URL.Path, "/mailFolders/archive") {
 				return fixtureResponse(`{"id":"archive-id"}`), nil
 			}
@@ -121,7 +130,7 @@ func TestProtectedArchiveRefusesChangedReviewedObject(t *testing.T) {
 	}
 }
 func TestProtectedArchiveHoldsUnknownAcrossPodsAndVersions(t *testing.T) {
-	for _, scenario := range []string{"timeout", "wrong-folder"} {
+	for _, scenario := range []string{"timeout", "wrong-folder", "readback-fails"} {
 		t.Run(scenario, func(t *testing.T) {
 			request := archiveReview(t)
 			root := archiveDirectory(t)
@@ -146,7 +155,7 @@ func TestProtectedArchiveRecoversIntentAndSerializesConcurrentCalls(t *testing.T
 		t.Fatal(err)
 	}
 	client, count := archiveFixtureClient(t, archiveFixture, "confirmed")
-	if _, err := ProtectedArchive(context.Background(), client, root, request); err == nil || *count != 0 {
+	if receipt, err := ProtectedArchive(context.Background(), client, root, request); err != nil || receipt.Outcome != "notApplied" || !strings.Contains(receipt.Reason, "busy") || *count != 0 {
 		t.Fatal("concurrent call passed the mailbox lock")
 	}
 	if err := journal.save(&ArchiveReceipt{Protocol: "o365-archive/v1", Request: request, Outcome: "unknown"}); err != nil {

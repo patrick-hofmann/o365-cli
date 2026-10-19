@@ -11,15 +11,22 @@ import (
 	"strings"
 )
 
+var ErrMailboxBusy = errors.New("mailbox mutation journal is busy; no mutation was dispatched")
+
 type archiveJournal struct {
-	path        string
-	lock        *os.File
-	entries     map[string]*ArchiveReceipt
-	resolutions map[string]ArchiveResolution
-	history     map[string]ArchiveHistory
+	path             string
+	lock             *os.File
+	entries          map[string]*ArchiveReceipt
+	resolutions      map[string]ArchiveResolution
+	history          map[string]ArchiveHistory
+	labels           map[string]*LabelReceipt
+	labelResolutions map[string]LabelResolution
 }
 
 func openArchiveJournal(root, account string) (*archiveJournal, error) {
+	if err := (WorkflowRequest{Operation: "delta", Account: account}).Validate(); err != nil {
+		return nil, err
+	}
 	if !filepath.IsAbs(root) {
 		return nil, errors.New("archive journal must be an explicitly assigned absolute shared directory")
 	}
@@ -40,7 +47,7 @@ func openArchiveJournal(root, account string) (*archiveJournal, error) {
 	if err != nil {
 		return nil, err
 	}
-	journal := &archiveJournal{path: path, lock: lock, entries: map[string]*ArchiveReceipt{}, history: map[string]ArchiveHistory{}, resolutions: map[string]ArchiveResolution{}}
+	journal := &archiveJournal{path: path, lock: lock, entries: map[string]*ArchiveReceipt{}, history: map[string]ArchiveHistory{}, resolutions: map[string]ArchiveResolution{}, labels: map[string]*LabelReceipt{}, labelResolutions: map[string]LabelResolution{}}
 	fail := func(err error) (*archiveJournal, error) { journal.close(); return nil, err }
 	if info, err := os.Lstat(path); err == nil {
 		if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
@@ -65,12 +72,14 @@ func openArchiveJournal(root, account string) (*archiveJournal, error) {
 		return fail(errors.New("archive journal requires maintenance before more writes"))
 	}
 	var stored struct {
-		Version     int                          `json:"version"`
-		Entries     map[string]*ArchiveReceipt   `json:"entries"`
-		History     map[string]ArchiveHistory    `json:"history,omitempty"`
-		Resolutions map[string]ArchiveResolution `json:"resolutions,omitempty"`
+		Version          int                          `json:"version"`
+		Labels           map[string]*LabelReceipt     `json:"labels,omitempty"`
+		LabelResolutions map[string]LabelResolution   `json:"labelResolutions,omitempty"`
+		Entries          map[string]*ArchiveReceipt   `json:"entries"`
+		History          map[string]ArchiveHistory    `json:"history,omitempty"`
+		Resolutions      map[string]ArchiveResolution `json:"resolutions,omitempty"`
 	}
-	if json.Unmarshal(bytes, &stored) != nil || (stored.Version != 1 && stored.Version != 2 && stored.Version != 3) || stored.Entries == nil {
+	if json.Unmarshal(bytes, &stored) != nil || (stored.Version != 1 && stored.Version != 2 && stored.Version != 3 && stored.Version != 4) || stored.Entries == nil {
 		return fail(errors.New("invalid archive journal; manual reconciliation required"))
 	}
 	for key, receipt := range stored.Entries {
@@ -82,6 +91,18 @@ func openArchiveJournal(root, account string) (*archiveJournal, error) {
 		if record.validate(account) != nil || key != historyKey(record) {
 			return fail(errors.New("invalid archive migration history"))
 		}
+	}
+	for key, receipt := range stored.Labels {
+		if receipt == nil || receipt.Protocol != "o365-labels/v1" || receipt.Request.Validate() != nil || key != receipt.Request.OperationID || !strings.EqualFold(receipt.Request.Account, account) || (receipt.Outcome != "unknown" && receipt.Outcome != "confirmed" && receipt.Outcome != "notApplied") || validCategories(receipt.Categories) != nil || len(receipt.Categories) == 0 || !containsLabel(receipt.Categories, receipt.Request.Category) {
+			return fail(errors.New("invalid label journal receipt"))
+		}
+		journal.labels[key] = receipt
+	}
+	for key, resolution := range stored.LabelResolutions {
+		if key != resolution.OperationID || !strings.EqualFold(resolution.Account, account) || journal.validateLabelResolution(resolution) != nil {
+			return fail(errors.New("invalid label reconciliation"))
+		}
+		journal.labelResolutions[key] = resolution
 	}
 	journal.entries = stored.Entries
 	if stored.History != nil {
@@ -101,13 +122,18 @@ func openArchiveJournal(root, account string) (*archiveJournal, error) {
 
 func (j *archiveJournal) close() { _ = j.lock.Close() }
 func (j *archiveJournal) previous(request ArchiveRequest) (*ArchiveReceipt, error) {
+	for _, receipt := range j.labels {
+		if receipt.Request.Message == request.Message && j.resolvedLabel(receipt).Outcome == "unknown" {
+			return nil, errors.New("an earlier label attempt awaits reconciliation")
+		}
+	}
 	for _, record := range j.history {
 		if record.Message == request.Message && (record.State == "consumed" || record.State == "unknown") && j.resolutions[resolutionKey(record.Source, record.OperationID)].Outcome != "notApplied" {
 			return nil, errors.New("historical consumed or uncertain archive work holds this message; inspect its migration record")
 		}
 	}
 	if previous, ok := j.entries[request.OperationID]; ok {
-		if previous.Request != request {
+		if !sameArchiveRequest(previous.Request, request) {
 			return nil, errors.New("operation id belongs to a different reviewed request")
 		}
 		return j.resolvedReceipt(previous), nil
@@ -132,11 +158,13 @@ func (j *archiveJournal) save(receipt *ArchiveReceipt) error {
 }
 func (j *archiveJournal) persist() error {
 	body, err := json.Marshal(struct {
-		Version     int                          `json:"version"`
-		Entries     map[string]*ArchiveReceipt   `json:"entries"`
-		History     map[string]ArchiveHistory    `json:"history,omitempty"`
-		Resolutions map[string]ArchiveResolution `json:"resolutions,omitempty"`
-	}{3, j.entries, j.history, j.resolutions})
+		Version          int                          `json:"version"`
+		Labels           map[string]*LabelReceipt     `json:"labels,omitempty"`
+		LabelResolutions map[string]LabelResolution   `json:"labelResolutions,omitempty"`
+		Entries          map[string]*ArchiveReceipt   `json:"entries"`
+		History          map[string]ArchiveHistory    `json:"history,omitempty"`
+		Resolutions      map[string]ArchiveResolution `json:"resolutions,omitempty"`
+	}{Version: 4, Entries: j.entries, History: j.history, Resolutions: j.resolutions, Labels: j.labels, LabelResolutions: j.labelResolutions})
 	if err != nil {
 		return err
 	}

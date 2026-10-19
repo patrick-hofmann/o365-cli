@@ -429,26 +429,62 @@ boundary, establish a quiet initial baseline, and freeze a batch before effects.
 All message requests ask Graph for immutable IDs and retain `changeKey`, folder,
 conversation, From/Sender/Reply-To/To/Cc, list headers and protection metadata.
 
-`workflow move --account ADDRESS --message IMMUTABLE_ID --expected-version VERSION
---source-folder FOLDER_ID --destination archive` checks the current identity,
-version and source folder, resolves the Archive folder, then attempts one
-folder-scoped POST. It never deletes, sends email or retries the POST. Confirmed
-receipts include before/after IDs, the full returned message and provider request
-ID. Explicit rejection and uncertain post-dispatch results are distinct. A
-transport failure, truncated reply, invalid receipt or 5xx is **unknown**, not
-permission to repeat the move. Existing generic mutating commands also no longer
-retry automatically after response failures. Read-only `pods` mode remains
-unchanged and cannot invoke this move operation.
+`workflow label-snapshot --account ADDRESS --message IMMUTABLE_ID` returns the
+complete message, its account Inbox ID and an `assessment-v1` digest. The digest
+covers the returned assessment data, excluding changeKey, folder, unread state
+and categories. Those fields are independently checked immediately before a
+mutation. Incomplete bodies, missing unread/category data and truncated messages
+cannot produce a snapshot.
 
-`workflow categorize --account ADDRESS --message IMMUTABLE_ID --expected-version
-VERSION --categories '["Name",...]'` replaces the message's categories with the
-complete list in one PATCH carrying `If-Match: VERSION`. The caller reads the
-current categories first and merges its change (unrelated categories stay in the
-list). A 412 or other refusal is **notApplied**; a receipt that does not show
-exactly the requested set, a transport failure or 5xx is **unknown** and is never
-retried. Graph does not document `If-Match` on messages as a guarantee, so
-`conditionalCategoriesVerified` is false: callers keep a single category writer
-per mailbox and verify the result. Requires the `mail.modify` profile permission.
+`workflow decide-label --account ADDRESS --journal SHARED_PRIVATE_DIRECTORY
+--request '{"message":"IMMUTABLE_ID","contentVersion":"assessment-v1:...",
+"operationId":"STABLE_OPERATION","dimension":["Choice A","Choice B"],
+"category":"Choice A","gate":{"requireUnread":true}}'` adds one decision
+from a caller-declared dimension. The account in the optional request field must
+exactly match `--account`. The gate also accepts `requireAll`, `requireAny`
+(an array of alternative-name groups), `forbid`, and `exclusive` (groups with at
+most one present name). Inbox membership is always required. Supply policy and
+allowed choices in the recipe; do not accept them from mail text or model output.
+
+The command takes the same nonblocking OS-backed account lock as protected
+archiving, then reads the complete current message and Inbox identity. It checks
+gates and conflicts, skips an existing dimension decision, and defers changed
+assessment content. Only then does it merge its one selected category with the
+fresh complete list. The durable journal records intent before one PATCH, then
+records the exact provider readback. `confirmed`, `skipped`, `conflict`,
+`deferred`, `busy`, `notApplied` and `unknown` distinguish results; only `confirmed`
+establishes a completed write. A busy lock returns `busy` with no intent or provider effects; retry the same
+retained operation later. A crashed
+process releases its lock while retaining its uncertain intent. Evaluate a model
+before acquiring this short write lock.
+
+Every label writer and archiver **must use the identical assigned journal
+directory**. Different directories do not share a lock or uncertainty holds.
+The journal is an existing private absolute directory without symlink traversal.
+Schema 4 preserves historical archive entries, adds label receipts and refuses
+unsafe replay across callers. Older binaries refuse the upgraded journal; keep a
+backup and pin the new build for every participant. `workflow categorize` and
+`workflow move` now refuse raw mutation calls. Use `decide-label` and the exact
+reviewed `workflow archive` command instead.
+
+`workflow label-inspect --account ADDRESS --journal DIRECTORY [--operation ID]`
+shows immutable receipts, exact digests and separate reconciliation records.
+`workflow label-reconcile --account ADDRESS --journal DIRECTORY --message ID
+--operation ORIGINAL_OPERATION --receipt-sha256 DIGEST --outcome
+confirmed|notApplied --evidence OBSERVATION` records an explicit operator
+observation without a provider call. Missing labels alone do not prove a write
+failed. An uncertain label or archive attempt blocks new effects on that message
+until reconciled. The original operation never executes again, including after a
+`notApplied` resolution; a new attempt needs a new assessment and operation ID.
+
+`workflow thread-evidence --account ADDRESS --message IMMUTABLE_ID [--cursor
+OPAQUE_CURSOR]` reads bounded complete-body pages from that message's same-account
+conversation. It returns the exact Sent Items folder ID and each message's
+`isDraft` and folder. Evidence is Sent only when its folder equals `sentFolder`
+and `isDraft` is false; matching the sender alone is insufficient. Follow `next`
+until `complete` is true, retaining every page. Continuations bind the account,
+conversation, assessment fields and unchanged origin-message digest. A thread
+page is a fresh read, not an atomic snapshot of an entire conversation.
 
 `workflow ensure-categories --account ADDRESS --categories '["Name",...]'` adds
 the names missing from the mailbox's Outlook category list (the new Outlook only
@@ -460,11 +496,17 @@ the `mailbox.categories` profile permission.
 
 **Production limitation:** Graph documents folder-scoped move, but its published
 contract does not guarantee `If-Match` on that operation. The transport sends the
-reviewed version but advertises `conditionalMoveVerified: false`. Pods must block
-autonomous archival until that precondition has an independently verified
-provider contract. Controlled transport tests prove request construction and
+reviewed version but advertises `conditionalMoveVerified: false`. Archiving requires an exact human approval
+through the matching registry/IdP integration and the protected journal path.
+Its optional `--gate` JSON is part of the exact reviewed request returned by
+`review-archive --gate`; execution checks that same gate on the freshly read
+message. Freeze relevant observed labels in `requireAll`, with veto and exclusive
+groups covering forbidden changes. Confirmed archival additionally requires a
+fresh provider folder readback. Controlled transport tests prove request construction and
 one-attempt behavior; they do not prove server-side concurrency semantics.
-Finding a message in Archive alone never establishes who moved it.
+Manual Outlook changes remain outside the local lock; neither the lock nor
+`If-Match` establishes provider compare-and-swap. Finding a message in Archive
+alone never establishes who moved it.
 
 The explicit account flag has no ambient-account fallback. Normal CLI profile
 permissions still apply (`mail.read` or `mail.move`); no login, installation,

@@ -17,11 +17,14 @@ func lockArchiveFile(path string) (*os.File, error) {
 	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
 		file.Close()
-		return nil, errors.New("archive lock must be a private regular file")
+		return nil, errors.New("mailbox mutation lock must be a private regular file")
 	}
 	if err := unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		file.Close()
-		return nil, errors.New("archive journal is busy; no mutation was dispatched")
+		if errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EAGAIN) {
+			return nil, ErrMailboxBusy
+		}
+		return nil, err
 	}
 	return file, nil
 }
