@@ -155,27 +155,33 @@ func ProtectedArchive(ctx context.Context, client *graph.Client, journalRoot str
 		return previous, err
 	}
 	result := &ArchiveReceipt{Protocol: "o365-archive/v1", Request: request, Outcome: "notApplied"}
+	finish := func() (*ArchiveReceipt, error) {
+		if err := journal.save(result); err != nil {
+			return nil, err
+		}
+		return result, nil
+	}
 	before, err := Workflow(ctx, client, WorkflowRequest{Operation: "read", Account: request.Account, Message: request.Message})
 	if err != nil || before.Outcome != "confirmed" || len(before.Items) != 1 {
 		result.Reason = "preflight read failed"
-		return result, nil
+		return finish()
 	}
 	var message archiveMessage
 	version, err := ArchiveContentVersion(before.Items[0])
 	if json.Unmarshal(before.Items[0], &message) != nil || err != nil || message.ID != request.Message || message.Folder != request.Folder || version != request.ContentVersion {
 		result.Reason = "message identity, folder or content changed after review"
-		return result, nil
+		return finish()
 	}
 	if request.Gate != nil {
 		current, parseErr := parseLabelMessage(before.Items[0])
 		inbox, inboxErr := inboxID(ctx, client, request.Account)
 		if parseErr != nil || inboxErr != nil {
 			result.Reason = "fresh archive eligibility unavailable"
-			return result, nil
+			return finish()
 		}
 		if outcome, reason := request.Gate.check(current, inbox); outcome != "" {
 			result.Reason = "archive eligibility: " + reason
-			return result, nil
+			return finish()
 		}
 	}
 	subject := ""
@@ -184,11 +190,11 @@ func ProtectedArchive(ctx context.Context, client *graph.Client, journalRoot str
 	}
 	if displayMail(mailAddress(message.From), 120) != request.Sender || displayMail(subject, 160) != request.Subject {
 		result.Reason = "message no longer matches the reviewed sender and subject"
-		return result, nil
+		return finish()
 	}
 	if err := ctx.Err(); err != nil {
 		result.Reason = "cancelled before dispatch"
-		return result, nil
+		return finish()
 	}
 	result.Outcome = "unknown"
 	result.Reason = "dispatch intent has no confirmed receipt"
@@ -214,10 +220,7 @@ func ProtectedArchive(ctx context.Context, client *graph.Client, journalRoot str
 			result.Outcome = "notApplied"
 		}
 	}
-	if err := journal.save(result); err != nil {
-		return nil, err
-	}
-	return result, nil
+	return finish()
 }
 
 func archiveReadback(ctx context.Context, client *graph.Client, account string, moved *WorkflowReply) bool {

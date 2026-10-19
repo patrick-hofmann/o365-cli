@@ -498,6 +498,10 @@ the `mailbox.categories` profile permission.
 contract does not guarantee `If-Match` on that operation. The transport sends the
 reviewed version but advertises `conditionalMoveVerified: false`. Archiving requires an exact human approval
 through the matching registry/IdP integration and the protected journal path.
+Every terminal archive refusal after taking the lock is journaled, so restoring
+eligibility never revives that operation. A busy lock cannot write a consumed
+receipt; the requesting recipe must treat that attempt as terminal and require
+a new operation and separate exact approval for any later attempt.
 Its optional `--gate` JSON is part of the exact reviewed request returned by
 `review-archive --gate`; execution checks that same gate on the freshly read
 message. Freeze relevant observed labels in `requireAll`, with veto and exclusive

@@ -358,3 +358,47 @@ func TestProtectedArchiveFreshGenericLabelGate(t *testing.T) {
 		})
 	}
 }
+
+func TestArchiveTerminalPreflightRefusalNeverRevivesOldOperation(t *testing.T) {
+	for _, scenario := range []string{"read", "changed-body", "gate", "cancelled", "unavailable"} {
+		t.Run(scenario, func(t *testing.T) {
+			request := archiveReview(t)
+			request.Gate = &LabelGate{RequireUnread: true, RequireAll: []string{"No reply", "Archive proposal"}}
+			eligible := strings.TrimSuffix(archiveFixture, "}") + `,"isRead":false,"categories":["No reply","Archive proposal"]}`
+			raw := eligible
+			switch scenario {
+			case "read":
+				raw = strings.Replace(raw, `"isRead":false`, `"isRead":true`, 1)
+			case "changed-body":
+				raw = strings.Replace(raw, "complete body", "changed body", 1)
+			case "gate":
+				raw = strings.Replace(raw, `"No reply",`, "", 1)
+			}
+			client, count := archiveFixtureClient(t, raw, "confirmed")
+			if scenario == "unavailable" {
+				client.HttpClient.Transport = fixtureTransport(func(_ *http.Request) (*http.Response, error) { return nil, errors.New("synthetic unavailable read") })
+			}
+			ctx := context.Background()
+			if scenario == "cancelled" {
+				cancelled, cancel := context.WithCancel(ctx)
+				cancel()
+				ctx = cancelled
+			}
+			root := archiveDirectory(t)
+			refused, err := ProtectedArchive(ctx, client, root, request)
+			if err != nil || refused.Outcome != "notApplied" || *count != 0 {
+				t.Fatalf("preflight not refused %+v %v", refused, err)
+			}
+			restored, restoredCount := archiveFixtureClient(t, eligible, "confirmed")
+			again, err := ProtectedArchive(context.Background(), restored, root, request)
+			if err != nil || again.Outcome != "notApplied" || *restoredCount != 0 {
+				t.Fatalf("restored eligibility revived consumed operation %+v %v", again, err)
+			}
+			request.OperationID = "separately-authorized-new-operation"
+			fresh, err := ProtectedArchive(context.Background(), restored, root, request)
+			if err != nil || fresh.Outcome != "archived" || *restoredCount != 1 {
+				t.Fatalf("new separately authorized operation failed %+v %v", fresh, err)
+			}
+		})
+	}
+}
