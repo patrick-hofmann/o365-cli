@@ -15,7 +15,7 @@ import (
 func newWorkflowCommand() *cobra.Command {
 	command := &cobra.Command{Use: "workflow", Short: "Explicit account-scoped JSON mail transport for Pods", SilenceUsage: true}
 	command.AddCommand(&cobra.Command{Use: "capabilities", Args: cobra.NoArgs, PersistentPreRunE: func(_ *cobra.Command, _ []string) error { return nil }, RunE: func(cmd *cobra.Command, _ []string) error {
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"protocol": "pods-mail/v1", "immutableIds": true, "deltaBoundary": true, "mutationAttempts": 1, "conditionalMoveVerified": false, "conditionalCategoriesVerified": false, "deltaFolders": []string{"inbox", "sentitems"}, "sharedMutationJournal": 4, "labelProtocol": "o365-labels/v1", "operations": []string{"delta", "read", "label-snapshot", "decide-label", "thread-evidence", "archive", "ensure-categories"}})
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"protocol": "pods-mail/v1", "immutableIds": true, "deltaBoundary": true, "mutationAttempts": 1, "conditionalMoveVerified": false, "conditionalCategoriesVerified": false, "deltaFolders": []string{"inbox", "sentitems"}, "sharedMutationJournal": 4, "labelProtocol": "o365-labels/v1", "operations": []string{"delta", "read", "label-snapshot", "add-category", "decide-label", "thread-evidence", "archive", "ensure-categories"}})
 	}})
 	for _, operation := range []string{"delta", "read", "move", "categorize"} {
 		operation := operation // go 1.21: each command keeps its own operation inside its closure
@@ -72,7 +72,7 @@ func newWorkflowCommand() *cobra.Command {
 		}
 		command.AddCommand(child)
 	}
-	command.AddCommand(newLabelSnapshotCommand(), newDecideLabelCommand(), newLabelInspectCommand(), newLabelReconcileCommand(), newThreadEvidenceCommand(), newEnsureCategoriesCommand(), newProtectedArchiveCommand(), newArchiveHistoryCommand(), newArchiveInspectCommand(), newArchiveReconcileCommand(), newReviewArchiveCommand())
+	command.AddCommand(newAddCategoryCommand(), newLabelSnapshotCommand(), newDecideLabelCommand(), newLabelInspectCommand(), newLabelReconcileCommand(), newThreadEvidenceCommand(), newEnsureCategoriesCommand(), newProtectedArchiveCommand(), newArchiveHistoryCommand(), newArchiveInspectCommand(), newArchiveReconcileCommand(), newReviewArchiveCommand())
 	return command
 }
 
