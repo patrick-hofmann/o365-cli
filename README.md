@@ -423,8 +423,8 @@ those identities to messages observed inside its assigned historical scope;
 `workflow delta --account ADDRESS [--folder inbox|sentitems]` reads a bounded
 delta page of the Inbox (default) or Sent Items; continue with its exact `next`
 cursor until a `delta` boundary is returned. Both cursors remain bound to the
-selected account and folder. Messages carry `categories` and `isRead`. The consumer must persist each page and
-boundary, establish a quiet initial baseline, and freeze a batch before effects.
+selected account and folder. Messages carry `categories` and `isRead`. Consumers may rescan from the Inbox on each run and use existing message categories
+to select unfinished work. Durable synchronization consumers may retain the delta boundary.
 `workflow read --account ADDRESS --message IMMUTABLE_ID` reads one message.
 All message requests ask Graph for immutable IDs and retain `changeKey`, folder,
 conversation, From/Sender/Reply-To/To/Cc, list headers and protection metadata.
@@ -435,6 +435,16 @@ covers the returned assessment data, excluding changeKey, folder, unread state
 and categories. Those fields are independently checked immediately before a
 mutation. Incomplete bodies, missing unread/category data and truncated messages
 cannot produce a snapshot.
+
+`workflow add-category --account ADDRESS --message IMMUTABLE_ID --category NAME`
+adds one category without a journal or operation ID. It reads the current categories,
+preserves them, and sends one PATCH only when the requested category is absent.
+An unchanged repeat returns `confirmed` without writing. The response uses
+`pods-mail/v1`; a lost write response remains `unknown`. A subsequent invocation
+reads the message again, so an already applied category is a no-op. There are no
+automatic write retries or recovery records. Concurrent independent category
+writers can still race; Graph's If-Match header is not a proven atomic guarantee.
+Use this command for simple idempotent tagging, with task selection in the Pod.
 
 `workflow decide-label --account ADDRESS --journal SHARED_PRIVATE_DIRECTORY
 --request '{"message":"IMMUTABLE_ID","contentVersion":"assessment-v1:...",
@@ -458,8 +468,9 @@ retained operation later. A crashed
 process releases its lock while retaining its uncertain intent. Evaluate a model
 before acquiring this short write lock.
 
-Every label writer and archiver **must use the identical assigned journal
-directory**. Different directories do not share a lock or uncertainty holds.
+Participants in the journal-based `decide-label`/archive workflow must use the
+identical assigned journal directory. The independent `add-category` command does
+not participate in that journal or its locks. Different directories do not share a lock or uncertainty holds.
 The journal is an existing private absolute directory without symlink traversal.
 Schema 4 preserves historical archive entries, adds label receipts and refuses
 unsafe replay across callers. Older binaries refuse the upgraded journal; keep a
