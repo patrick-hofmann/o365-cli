@@ -42,6 +42,15 @@ risk = "low"
 resource_chain = ["mail-account:email={account}", "mail-message:id={message}"]
 
 [[operation]]
+id = "workflow.update-labels"
+command = ["workflow", "update-labels"]
+required_options = ["account", "message"]
+display = "Remove and add named labels on one message of {account}"
+action = "categorize"
+risk = "medium"
+resource_chain = ["mail-account:email={account}", "mail-message:id={message}", "mail-operation:name=update-labels"]
+
+[[operation]]
 id = "workflow.decide-label"
 command = ["workflow", "decide-label"]
 required_options = ["account", "request", "journal"]

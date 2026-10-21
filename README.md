@@ -430,21 +430,45 @@ All message requests ask Graph for immutable IDs and retain `changeKey`, folder,
 conversation, From/Sender/Reply-To/To/Cc, list headers and protection metadata.
 
 `workflow label-snapshot --account ADDRESS --message IMMUTABLE_ID` returns the
-complete message, its account Inbox ID and an `assessment-v1` digest. The digest
-covers the returned assessment data, excluding changeKey, folder, unread state
-and categories. Those fields are independently checked immediately before a
-mutation. Incomplete bodies, missing unread/category data and truncated messages
-cannot produce a snapshot.
+complete message, its account Inbox ID, an `assessment-v1` digest as
+`contentVersion` and an `assessment-v2` digest as `assessmentVersion`. The v1
+digest covers the returned assessment data, excluding changeKey, folder, unread
+state and categories. The v2 digest also excludes the Outlook flag and importance,
+so triage marks do not count as new content. Existing v1 values are unchanged.
+Those fields are independently checked immediately before a mutation. Incomplete
+bodies, missing unread/category data and truncated messages cannot produce a snapshot.
 
-`workflow add-category --account ADDRESS --message IMMUTABLE_ID --category NAME`
-adds one category without a journal or operation ID. It reads the current categories,
+`workflow add-category --account ADDRESS --message IMMUTABLE_ID --category NAME
+[--lock DIRECTORY]` adds one category without a journal or operation ID. It holds
+the shared mailbox lock (see `update-labels`), reads the current categories,
 preserves them, and sends one PATCH only when the requested category is absent.
 An unchanged repeat returns `confirmed` without writing. The response uses
 `pods-mail/v1`; a lost write response remains `unknown`. A subsequent invocation
-reads the message again, so an already applied category is a no-op. There are no
-automatic write retries or recovery records. Concurrent independent category
-writers can still race; Graph's If-Match header is not a proven atomic guarantee.
-Use this command for simple idempotent tagging, with task selection in the Pod.
+reads the message again, so an already applied category is a no-op. A lock that
+stays busy longer than `--lock-wait` returns `notApplied` without a write.
+
+`workflow update-labels --account ADDRESS --message IMMUTABLE_ID [--lock DIRECTORY]
+--remove NAME ... --add NAME ... [--content-version assessment-v1:...|assessment-v2:...]`
+removes and adds named categories in one PATCH. `--remove` and `--add` are
+repeatable; removing an absent name or adding a present one changes nothing, so the
+target is always the current set minus `--remove` plus `--add`. Other categories
+stay untouched. A name in both lists is rejected. To replace a value of a label
+family, remove all other values of that family in the same call. The message must
+still be in the Inbox; with `--content-version` the write is refused when the
+assessed content changed. The resulting category set is the only idempotency
+state: a repeat after success returns `skipped` without writing, and a repeat
+after an interruption or `unknown` result simply writes the remaining change.
+The `o365-labels/v2` receipt reports `confirmed`, `skipped`, `deferred`, `busy`,
+`notApplied` or `unknown` with `before` and `categories`.
+
+Label writers and archivers serialize on one OS-backed lock file per account,
+`DIRECTORY/<sha256(account)>.json.lock`. `--lock` names that directory for
+`add-category` and `update-labels`; without it, `lock_dir` from the config file
+is used (`o365-cli config set lock_dir /absolute/shared/directory`), and writes
+are refused when neither is set. Use the same directory as the `--journal` of
+`decide-label` and `archive`. `--lock-wait` (default 10s) bounds how long any
+workflow mutation waits for a busy lock. Graph accepts stale If-Match headers, so
+the lock protects only against other CLI writers, not against concurrent edits in Outlook.
 
 `workflow decide-label --account ADDRESS --journal SHARED_PRIVATE_DIRECTORY
 --request '{"message":"IMMUTABLE_ID","contentVersion":"assessment-v1:...",
@@ -463,14 +487,14 @@ assessment content. Only then does it merge its one selected category with the
 fresh complete list. The durable journal records intent before one PATCH, then
 records the exact provider readback. `confirmed`, `skipped`, `conflict`,
 `deferred`, `busy`, `notApplied` and `unknown` distinguish results; only `confirmed`
-establishes a completed write. A busy lock returns `busy` with no intent or provider effects; retry the same
+establishes a completed write. A lock still busy after `--lock-wait` returns `busy` with no intent or provider effects; retry the same
 retained operation later. A crashed
 process releases its lock while retaining its uncertain intent. Evaluate a model
 before acquiring this short write lock.
 
 Participants in the journal-based `decide-label`/archive workflow must use the
-identical assigned journal directory. The independent `add-category` command does
-not participate in that journal or its locks. Different directories do not share a lock or uncertainty holds.
+identical assigned journal directory. `add-category` and `update-labels` share its
+lock but write no journal records. Different directories do not share a lock or uncertainty holds.
 The journal is an existing private absolute directory without symlink traversal.
 Schema 4 preserves historical archive entries, adds label receipts and refuses
 unsafe replay across callers. Older binaries refuse the upgraded journal; keep a
