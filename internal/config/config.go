@@ -50,6 +50,8 @@ type Config struct {
 	CurrentAccount string `mapstructure:"current_account"`
 	CacheDir       string `mapstructure:"cache_dir"`
 	Debug          bool   `mapstructure:"debug"`
+	// LockDir is the shared mailbox lock directory used when a label write omits --lock.
+	LockDir string `mapstructure:"lock_dir"`
 }
 
 // Account represents a logged-in O365 account
@@ -101,6 +103,7 @@ func Load() (*Config, error) {
 	viper.SetDefault("current_account", cfg.CurrentAccount)
 	viper.SetDefault("cache_dir", cfg.CacheDir)
 	viper.SetDefault("debug", cfg.Debug)
+	viper.SetDefault("lock_dir", cfg.LockDir)
 
 	// Read config file (if exists)
 	if err := viper.ReadInConfig(); err != nil {
@@ -137,6 +140,7 @@ func Save(cfg *Config) error {
 	viper.Set("current_account", cfg.CurrentAccount)
 	viper.Set("cache_dir", cfg.CacheDir)
 	viper.Set("debug", cfg.Debug)
+	viper.Set("lock_dir", cfg.LockDir)
 
 	// Save
 	configPath := filepath.Join(configDir, ConfigFileName+".yaml")
@@ -165,6 +169,8 @@ func SetValue(key, value string) error {
 		cfg.ClientID = value
 	case "current_account":
 		cfg.CurrentAccount = value
+	case "lock_dir":
+		cfg.LockDir = value
 	default:
 		return fmt.Errorf("unknown config key: %s", key)
 	}
@@ -186,6 +192,8 @@ func GetValue(key string) (string, error) {
 		return cfg.CurrentAccount, nil
 	case "cache_dir":
 		return cfg.CacheDir, nil
+	case "lock_dir":
+		return cfg.LockDir, nil
 	default:
 		return "", fmt.Errorf("unknown config key: %s", key)
 	}

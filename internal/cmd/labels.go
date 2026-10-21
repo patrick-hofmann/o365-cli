@@ -69,6 +69,9 @@ func newDecideLabelCommand() *cobra.Command {
 		if err := request.Validate(); err != nil {
 			return err
 		}
+		if err := requireSharedJournal(journal); err != nil {
+			return err
+		}
 		ctx, cancel := context.WithTimeout(cmd.Context(), 3*time.Minute)
 		defer cancel()
 		token, err := getAccessTokenForAccount(ctx, request.Account)

@@ -13,7 +13,7 @@ import (
 )
 
 func newAddCategoryCommand() *cobra.Command {
-	var message, category string
+	var message, category, lock string
 	command := &cobra.Command{
 		Use: "add-category", Short: "Add one category, preserving existing categories; repeated additions are no-ops",
 		Args: cobra.NoArgs, Annotations: map[string]string{profile.AnnotationKey: "mail.modify"},
@@ -24,13 +24,17 @@ func newAddCategoryCommand() *cobra.Command {
 			if err := (mail.WorkflowRequest{Operation: "read", Account: accountFlag, Message: message}).Validate(); err != nil {
 				return err
 			}
-			ctx, cancel := context.WithTimeout(cmd.Context(), time.Minute)
+			root, err := lockDirectory(lock)
+			if err != nil {
+				return err
+			}
+			ctx, cancel := context.WithTimeout(cmd.Context(), time.Minute+mail.LockWait)
 			defer cancel()
 			token, err := getAccessTokenForAccount(ctx, accountFlag)
 			if err != nil {
 				return err
 			}
-			result, err := mail.AddCategory(ctx, graph.NewClient(token), accountFlag, message, category)
+			result, err := mail.AddCategoryLocked(ctx, graph.NewClient(token), root, accountFlag, message, category)
 			if err != nil {
 				return err
 			}
@@ -39,6 +43,7 @@ func newAddCategoryCommand() *cobra.Command {
 	}
 	command.Flags().StringVar(&message, "message", "", "Immutable message id")
 	command.Flags().StringVar(&category, "category", "", "One category name to add")
+	command.Flags().StringVar(&lock, "lock", "", "Shared lock directory, identical for all label writers and archivers (default: lock_dir from the config)")
 	_ = command.MarkFlagRequired("message")
 	_ = command.MarkFlagRequired("category")
 	return command

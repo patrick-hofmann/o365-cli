@@ -30,6 +30,9 @@ func newProtectedArchiveCommand() *cobra.Command {
 		if journal == "" {
 			return errors.New("--journal must name the shared mailbox journal assigned to all callers")
 		}
+		if err := requireSharedJournal(journal); err != nil {
+			return err
+		}
 		ctx, cancel := context.WithTimeout(cmd.Context(), 3*time.Minute)
 		defer cancel()
 		token, err := getAccessTokenForAccount(ctx, request.Account)

@@ -46,11 +46,12 @@ type LabelReceipt struct {
 }
 
 type LabelSnapshot struct {
-	Protocol       string          `json:"protocol"`
-	Account        string          `json:"account"`
-	Message        json.RawMessage `json:"message"`
-	ContentVersion string          `json:"contentVersion"`
-	Inbox          string          `json:"inbox"`
+	Protocol          string          `json:"protocol"`
+	Account           string          `json:"account"`
+	Message           json.RawMessage `json:"message"`
+	ContentVersion    string          `json:"contentVersion"`
+	AssessmentVersion string          `json:"assessmentVersion"`
+	Inbox             string          `json:"inbox"`
 }
 
 type labelMessage struct {
@@ -123,6 +124,16 @@ func parseLabelMessage(raw json.RawMessage) (*labelMessage, error) {
 // AssessmentContentVersion binds the full returned assessment data. ChangeKey,
 // categories, unread state and folder are fresh eligibility, not assessment data.
 func AssessmentContentVersion(raw json.RawMessage) (string, error) {
+	return assessmentDigest(raw, "assessment-v1:", "changeKey", "categories", "isRead", "parentFolderId", "@odata.etag")
+}
+
+// AssessmentContentVersionV2 additionally ignores the Outlook flag and importance,
+// which owners change while triaging without changing the message content.
+func AssessmentContentVersionV2(raw json.RawMessage) (string, error) {
+	return assessmentDigest(raw, "assessment-v2:", "changeKey", "categories", "isRead", "parentFolderId", "@odata.etag", "flag", "importance")
+}
+
+func assessmentDigest(raw json.RawMessage, prefix string, excluded ...string) (string, error) {
 	if _, err := parseLabelMessage(raw); err != nil {
 		return "", err
 	}
@@ -130,7 +141,7 @@ func AssessmentContentVersion(raw json.RawMessage) (string, error) {
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		return "", err
 	}
-	for _, name := range []string{"changeKey", "categories", "isRead", "parentFolderId", "@odata.etag"} {
+	for _, name := range excluded {
 		delete(fields, name)
 	}
 	body, err := json.Marshal(fields)
@@ -138,7 +149,7 @@ func AssessmentContentVersion(raw json.RawMessage) (string, error) {
 		return "", err
 	}
 	hash := sha256.Sum256(body)
-	return "assessment-v1:" + hex.EncodeToString(hash[:]), nil
+	return prefix + hex.EncodeToString(hash[:]), nil
 }
 
 func inboxID(ctx context.Context, client *graph.Client, account string) (string, error) {
@@ -166,11 +177,15 @@ func ReadLabelSnapshot(ctx context.Context, client *graph.Client, account, messa
 	if err != nil {
 		return nil, err
 	}
+	assessment, err := AssessmentContentVersionV2(read.Items[0])
+	if err != nil {
+		return nil, err
+	}
 	inbox, err := inboxID(ctx, client, account)
 	if err != nil {
 		return nil, err
 	}
-	return &LabelSnapshot{Protocol: "o365-labels/v1", Account: account, Message: read.Items[0], ContentVersion: version, Inbox: inbox}, nil
+	return &LabelSnapshot{Protocol: "o365-labels/v1", Account: account, Message: read.Items[0], ContentVersion: version, AssessmentVersion: assessment, Inbox: inbox}, nil
 }
 
 func containsLabel(names []string, name string) bool {

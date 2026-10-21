@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 var ErrMailboxBusy = errors.New("mailbox mutation journal is busy; no mutation was dispatched")
@@ -23,27 +24,52 @@ type archiveJournal struct {
 	labelResolutions map[string]LabelResolution
 }
 
-func openArchiveJournal(root, account string) (*archiveJournal, error) {
+// LockWait bounds how long a mutation waits for the shared per-account mailbox lock.
+// Zero keeps the original immediate busy refusal.
+var LockWait time.Duration
+
+// mailboxPath is the per-account journal path inside the shared directory; its lock file
+// is shared by every label writer and archiver of that account.
+func mailboxPath(root, account string) (string, error) {
 	if err := (WorkflowRequest{Operation: "delta", Account: account}).Validate(); err != nil {
-		return nil, err
+		return "", err
 	}
 	if !filepath.IsAbs(root) {
-		return nil, errors.New("archive journal must be an explicitly assigned absolute shared directory")
+		return "", errors.New("archive journal must be an explicitly assigned absolute shared directory")
 	}
 	info, err := os.Lstat(root)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0077 != 0 {
-		return nil, errors.New("archive journal needs an existing private directory")
+		return "", errors.New("archive journal needs an existing private directory")
 	}
 	canonical, err := filepath.EvalSymlinks(root)
 	if err != nil || canonical != filepath.Clean(root) {
-		return nil, errors.New("archive journal may not traverse symbolic links")
+		return "", errors.New("archive journal may not traverse symbolic links")
 	}
 	hash := sha256.Sum256([]byte(strings.ToLower(account)))
-	path := filepath.Join(root, hex.EncodeToString(hash[:])+".json")
-	lock, err := lockArchiveFile(path + ".lock")
+	return filepath.Join(root, hex.EncodeToString(hash[:])+".json"), nil
+}
+
+// lockMailbox retries a busy lock until LockWait has passed; other errors return at once.
+func lockMailbox(path string) (*os.File, error) {
+	deadline := time.Now().Add(LockWait)
+	for {
+		lock, err := lockArchiveFile(path + ".lock")
+		if !errors.Is(err, ErrMailboxBusy) || !time.Now().Before(deadline) {
+			return lock, err
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func openArchiveJournal(root, account string) (*archiveJournal, error) {
+	path, err := mailboxPath(root, account)
+	if err != nil {
+		return nil, err
+	}
+	lock, err := lockMailbox(path)
 	if err != nil {
 		return nil, err
 	}
