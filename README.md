@@ -438,6 +438,14 @@ so triage marks do not count as new content. Existing v1 values are unchanged.
 Those fields are independently checked immediately before a mutation. Incomplete
 bodies, missing unread/category data and truncated messages cannot produce a snapshot.
 
+`workflow find --account ADDRESS [--with NAME ...] [--without NAME ...]
+[--has-attachments] [--oldest] [--top 1..50]` finds Inbox messages in one Graph
+query instead of paging `delta`. `--with` names are any-of, `--without` names are
+none-of; both compare exact category names. Messages come newest first (or oldest
+first with `--oldest`) as `pods-mail/v1` items with only the immutable `id`,
+`receivedDateTime`, `categories` and `hasAttachments`. Read the full message with
+`label-snapshot` before acting.
+
 `workflow add-category --account ADDRESS --message IMMUTABLE_ID --category NAME
 [--lock DIRECTORY]` adds one category without a journal or operation ID. It holds
 the shared mailbox lock (see `update-labels`), reads the current categories,
