@@ -251,12 +251,15 @@ func getAllAccessTokens(ctx context.Context) ([]AccountToken, error) {
 	return results, nil
 }
 
+// Version is stamped in by the Makefile's LDFLAGS; a plain `go build` reports dev.
+var Version = "dev"
+
 // versionCmd shows the version
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Show version",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("o365-cli v2.1.1")
+		fmt.Println("o365-cli v" + Version)
 	},
 }
 

@@ -2,12 +2,12 @@
 # Cross-Platform Build Support
 
 BINARY_NAME=o365-cli
-VERSION=2.1.1
+VERSION=2.2.0
 BUILD_DIR=dist
 MAIN_PATH=./cmd/o365-cli
 
 # Build flags
-LDFLAGS=-ldflags "-s -w -X main.Version=$(VERSION)"
+LDFLAGS=-ldflags "-s -w -X github.com/yourname/o365-cli/internal/cmd.Version=$(VERSION)"
 
 # Alle Plattformen
 PLATFORMS=darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64
