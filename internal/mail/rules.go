@@ -10,14 +10,16 @@ import (
 // MessageRule represents an Outlook inbox rule
 type MessageRule struct {
 	ID          string                 `json:"id,omitempty"`
-	DisplayName string                 `json:"displayName"`
+	DisplayName string                 `json:"displayName,omitempty"`
 	Sequence    int                    `json:"sequence,omitempty"`
-	IsEnabled   bool                   `json:"isEnabled"`
+	IsEnabled   *bool                  `json:"isEnabled,omitempty"`
 	IsReadOnly  bool                   `json:"isReadOnly,omitempty"`
 	Conditions  *MessageRulePredicates `json:"conditions,omitempty"`
 	Actions     *MessageRuleActions    `json:"actions,omitempty"`
 	Exceptions  *MessageRulePredicates `json:"exceptions,omitempty"`
 }
+
+func (r MessageRule) Enabled() bool { return r.IsEnabled != nil && *r.IsEnabled }
 
 // MessageRulePredicates contains conditions for matching messages
 type MessageRulePredicates struct {
@@ -189,12 +191,12 @@ func (c *Client) DeleteRule(ruleID string) error {
 
 // EnableRule enables an inbox message rule
 func (c *Client) EnableRule(ruleID string) (*MessageRule, error) {
-	return c.UpdateRule(ruleID, &MessageRule{IsEnabled: true})
+	return c.UpdateRule(ruleID, &MessageRule{IsEnabled: BoolPtr(true)})
 }
 
 // DisableRule disables an inbox message rule
 func (c *Client) DisableRule(ruleID string) (*MessageRule, error) {
-	return c.UpdateRule(ruleID, &MessageRule{IsEnabled: false})
+	return c.UpdateRule(ruleID, &MessageRule{IsEnabled: BoolPtr(false)})
 }
 
 // ToEmailAddressWrapper creates email address wrapper from string
