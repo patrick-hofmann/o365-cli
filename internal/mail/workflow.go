@@ -52,6 +52,7 @@ type WorkflowReply struct {
 	RequestID               string            `json:"requestId,omitempty"`
 	Reason                  string            `json:"reason,omitempty"`
 	ConditionalMoveVerified bool              `json:"conditionalMoveVerified"`
+	Snapshot                *LabelSnapshot    `json:"snapshot,omitempty"`
 }
 
 func (r WorkflowRequest) Validate() error { _, err := r.endpoint(); return err }
