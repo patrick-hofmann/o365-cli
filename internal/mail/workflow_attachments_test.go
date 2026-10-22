@@ -12,7 +12,7 @@ import (
 	"github.com/yourname/o365-cli/internal/graph"
 )
 
-func TestSaveMessagePDFsStoresPDFsOnceAndFallsBackToOCR(t *testing.T) {
+func TestSaveMessagePDFsStoresPDFsOnce(t *testing.T) {
 	scan := base64.StdEncoding.EncodeToString([]byte("%PDF-1.4 scanned page without text layer"))
 	client := graph.NewReadOnlyClient(context.Background(), "synthetic-secret")
 	client.HttpClient.Transport = fixtureTransport(func(r *http.Request) (*http.Response, error) {
@@ -24,8 +24,6 @@ func TestSaveMessagePDFsStoresPDFsOnceAndFallsBackToOCR(t *testing.T) {
 			{"@odata.type":"#microsoft.graph.fileAttachment","name":"logo.png","contentType":"image/png","isInline":true,"contentBytes":"iVBORw=="},
 			{"@odata.type":"#microsoft.graph.itemAttachment","name":"forwarded.pdf"}]}`), nil
 	})
-	ocr = func(context.Context, []byte) (string, string) { return "Rechnung an Delta Mind GmbH ATU69638207", "" }
-	defer func() { ocr = ocrText }()
 	dir := t.TempDir()
 	message := "AAkALgAAAAAAHYQDEapmEc2byACqAC-EWg0Aihx0qtzv3k_XDmEEfSdYlgAJPeoZKgAA"
 	for run := 0; run < 2; run++ { // the repeat must reuse the identical file
@@ -34,7 +32,7 @@ func TestSaveMessagePDFsStoresPDFsOnceAndFallsBackToOCR(t *testing.T) {
 			t.Fatalf("run %d: %+v %v", run, reply, err)
 		}
 		var saved SavedPDF
-		if json.Unmarshal(reply.Items[0], &saved) != nil || saved.Name != "Rechnung.pdf" || saved.TextSource != "ocr" || filepath.Base(saved.Path) != saved.SHA256+".pdf" {
+		if json.Unmarshal(reply.Items[0], &saved) != nil || saved.Name != "Rechnung.pdf" || filepath.Base(saved.Path) != saved.SHA256+".pdf" {
 			t.Fatalf("run %d item %s", run, reply.Items[0])
 		}
 	}

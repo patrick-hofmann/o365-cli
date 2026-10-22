@@ -9,8 +9,6 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-require github.com/ledongthuc/pdf v0.0.0-20261020125853-5e46805f718e
-
 require (
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.0 // indirect

@@ -14,7 +14,7 @@ import (
 
 func newWorkflowAttachmentsCommand() *cobra.Command {
 	var message, dir string
-	command := &cobra.Command{Use: "attachments", Short: "Save the PDF attachments of one message under their SHA-256 and return their text", Args: cobra.NoArgs,
+	command := &cobra.Command{Use: "attachments", Short: "Save the PDF attachments of one message under their SHA-256", Args: cobra.NoArgs,
 		Annotations: map[string]string{profile.AnnotationKey: "mail.read"}, RunE: func(cmd *cobra.Command, _ []string) error {
 			if accountFlag == "" {
 				return errors.New("workflow requires an explicit --account; ambient defaults are not accepted")

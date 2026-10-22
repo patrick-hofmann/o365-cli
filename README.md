@@ -447,12 +447,18 @@ first with `--oldest`) as `pods-mail/v1` items with only the immutable `id`,
 `label-snapshot` before acting.
 
 `workflow attachments --account ADDRESS --message IMMUTABLE_ID --save-to ABSOLUTE_DIR`
-stores every non-inline PDF attachment of one message as `ABSOLUTE_DIR/<sha256>.pdf`
-and returns per file `name`, `path`, `sha256`, `size`, `text` (at most 30,000
-characters, `textTruncated` when cut) and `textSource`. The text comes from the PDF
-text layer; when that is empty, the first five pages are rendered with `pdftoppm` and
-read with `tesseract -l deu+eng` (`textSource: ocr`). A repeat reuses identical files and
-refuses a different file under the same name.
+stores every non-inline PDF attachment (up to 20 MiB) of one message as
+`ABSOLUTE_DIR/<sha256>.pdf` and returns `name`, `path`, `sha256` and `size` per file.
+A repeat reuses identical files and refuses a different file under the same name.
+Reading the PDF text, including OCR for scans, is left to a separate PDF tool.
+
+`workflow archive-labelled --account ADDRESS --message IMMUTABLE_ID --label NAME
+--content-version assessment-v1:...|assessment-v2:... [--lock DIRECTORY]` moves one
+message to Archive under the shared mailbox lock only while it is in the Inbox, carries
+the exact category `NAME` and still has the assessed content version. Missing label:
+`notApplied`; changed content: `deferred`; already outside the Inbox: `skipped`, so an
+interrupted run can repeat. The label makes a narrowly scoped standing archive grant
+possible (for example only mails labelled `Rechnung: abgelegt`).
 
 `workflow add-category --account ADDRESS --message IMMUTABLE_ID --category NAME
 [--lock DIRECTORY]` adds one category without a journal or operation ID. It holds
