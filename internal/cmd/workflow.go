@@ -73,7 +73,7 @@ func newWorkflowCommand() *cobra.Command {
 		}
 		command.AddCommand(child)
 	}
-	command.AddCommand(newFindCommand(), newWorkflowAttachmentsCommand(), newArchiveLabelledCommand(), newAddCategoryCommand(), newUpdateLabelsCommand(), newLabelSnapshotCommand(), newDecideLabelCommand(), newLabelInspectCommand(), newLabelReconcileCommand(), newThreadEvidenceCommand(), newEnsureCategoriesCommand(), newProtectedArchiveCommand(), newArchiveHistoryCommand(), newArchiveInspectCommand(), newArchiveReconcileCommand(), newReviewArchiveCommand())
+	command.AddCommand(newFindCommand(), newFindFirstCommand(), newWorkflowAttachmentsCommand(), newArchiveLabelledCommand(), newAddCategoryCommand(), newUpdateLabelsCommand(), newLabelSnapshotCommand(), newDecideLabelCommand(), newLabelInspectCommand(), newLabelReconcileCommand(), newThreadEvidenceCommand(), newEnsureCategoriesCommand(), newProtectedArchiveCommand(), newArchiveHistoryCommand(), newArchiveInspectCommand(), newArchiveReconcileCommand(), newReviewArchiveCommand())
 	return command
 }
 

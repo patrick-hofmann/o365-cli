@@ -446,6 +446,12 @@ first with `--oldest`) as `pods-mail/v1` items with only the immutable `id`,
 `receivedDateTime`, `categories` and `hasAttachments`. Read the full message with
 `label-snapshot` before acting.
 
+`workflow find-first --account ADDRESS [--with NAME ...] [--without NAME ...]
+[--has-attachments] [--oldest]` runs the same query for one message and adds its
+complete `label-snapshot` (message, content versions, Inbox id) as `snapshot`, so a
+Pod that works on one message per run needs one call instead of two. It reads
+message content and is therefore a separate command and grant from `find`.
+
 `workflow attachments --account ADDRESS --message IMMUTABLE_ID --save-to ABSOLUTE_DIR`
 stores every non-inline PDF attachment (up to 20 MiB) of one message as
 `ABSOLUTE_DIR/<sha256>.pdf` and returns `name`, `path`, `sha256` and `size` per file.

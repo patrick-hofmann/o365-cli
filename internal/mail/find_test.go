@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/yourname/o365-cli/internal/graph"
@@ -31,5 +32,34 @@ func TestFindBuildsOneServerSideCategoryQuery(t *testing.T) {
 		if _, err := invalid.endpoint(); err == nil {
 			t.Fatalf("accepted %+v", invalid)
 		}
+	}
+}
+
+func TestFindSnapshotReadsOnlyTheFirstMessage(t *testing.T) {
+	var reads []string
+	client := graph.NewReadOnlyClient(context.Background(), "synthetic-secret")
+	client.HttpClient.Transport = fixtureTransport(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/mailFolders/inbox/messages"):
+			return fixtureResponse(`{"value":[{"id":"immutable-before"},{"id":"second"}]}`), nil
+		case strings.HasSuffix(r.URL.Path, "/mailFolders/inbox"):
+			return fixtureResponse(`{"id":"inbox-id"}`), nil
+		}
+		reads = append(reads, r.URL.Path)
+		return fixtureResponse(labelFixture), nil
+	})
+	request := FindRequest{Account: "pod@example.invalid", Top: 2, Snapshot: true}
+	reply, err := FindMessages(context.Background(), client, request)
+	if err != nil || len(reply.Items) != 2 || reply.Snapshot == nil || reply.Snapshot.Inbox != "inbox-id" || reply.Snapshot.AssessmentVersion == "" {
+		t.Fatalf("snapshot: %+v %v", reply, err)
+	}
+	for _, path := range reads {
+		if strings.Contains(path, "second") {
+			t.Fatalf("read a message beyond the first: %v", reads)
+		}
+	}
+	request.Snapshot = false
+	if reply, _ := FindMessages(context.Background(), client, request); reply.Snapshot != nil {
+		t.Fatal("snapshot returned without --snapshot")
 	}
 }

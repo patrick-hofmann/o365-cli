@@ -20,6 +20,7 @@ type FindRequest struct {
 	HasAttachments bool
 	Oldest         bool
 	Top            int
+	Snapshot       bool // also return the label snapshot of the first message, saving the Pod a second call
 }
 
 type FoundMessage struct {
@@ -89,7 +90,11 @@ func FindMessages(ctx context.Context, client *graph.Client, r FindRequest) (*Wo
 	if json.Unmarshal(body, &page) != nil {
 		return nil, errors.New("Graph returned an unreadable message list")
 	}
-	reply := &WorkflowReply{Protocol: "pods-mail/v1", Account: r.Account, Operation: "find", Outcome: "confirmed", Items: []json.RawMessage{}}
+	operation := "find"
+	if r.Snapshot {
+		operation = "find-first"
+	}
+	reply := &WorkflowReply{Protocol: "pods-mail/v1", Account: r.Account, Operation: operation, Outcome: "confirmed", Items: []json.RawMessage{}}
 	for _, message := range page.Value {
 		if message.ID == "" {
 			return nil, errors.New("Graph returned a message without id")
@@ -99,6 +104,11 @@ func FindMessages(ctx context.Context, client *graph.Client, r FindRequest) (*Wo
 		}
 		item, _ := json.Marshal(message)
 		reply.Items = append(reply.Items, item)
+	}
+	if r.Snapshot && len(page.Value) > 0 {
+		if reply.Snapshot, err = ReadLabelSnapshot(ctx, client, r.Account, page.Value[0].ID); err != nil {
+			return nil, err
+		}
 	}
 	return reply, nil
 }
