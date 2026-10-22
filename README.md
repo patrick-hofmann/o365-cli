@@ -446,6 +446,14 @@ first with `--oldest`) as `pods-mail/v1` items with only the immutable `id`,
 `receivedDateTime`, `categories` and `hasAttachments`. Read the full message with
 `label-snapshot` before acting.
 
+`workflow attachments --account ADDRESS --message IMMUTABLE_ID --save-to ABSOLUTE_DIR`
+stores every non-inline PDF attachment of one message as `ABSOLUTE_DIR/<sha256>.pdf`
+and returns per file `name`, `path`, `sha256`, `size`, `text` (at most 30,000
+characters, `textTruncated` when cut) and `textSource`. The text comes from the PDF
+text layer; when that is empty, the first five pages are rendered with `pdftoppm` and
+read with `tesseract -l deu+eng` (`textSource: ocr`). A repeat reuses identical files and
+refuses a different file under the same name.
+
 `workflow add-category --account ADDRESS --message IMMUTABLE_ID --category NAME
 [--lock DIRECTORY]` adds one category without a journal or operation ID. It holds
 the shared mailbox lock (see `update-labels`), reads the current categories,

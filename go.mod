@@ -1,6 +1,6 @@
 module github.com/yourname/o365-cli
 
-go 1.21
+go 1.24.1
 
 require (
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.2.2
@@ -8,6 +8,8 @@ require (
 	github.com/spf13/viper v1.18.2
 	gopkg.in/yaml.v3 v3.0.1
 )
+
+require github.com/ledongthuc/pdf v0.0.0-20261020125853-5e46805f718e
 
 require (
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
