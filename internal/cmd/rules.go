@@ -229,7 +229,7 @@ func runRulesList(cmd *cobra.Command, args []string) error {
 
 	for _, rule := range rules {
 		status := "✓"
-		if !rule.IsEnabled {
+		if !rule.Enabled() {
 			status = "✗"
 		}
 		readonly := ""
@@ -283,7 +283,7 @@ func runRulesGet(cmd *cobra.Command, args []string) error {
 	fmt.Printf("\nRule: %s\n", rule.DisplayName)
 	fmt.Println(strings.Repeat("─", 50))
 	fmt.Printf("ID: %s\n", rule.ID)
-	fmt.Printf("Enabled: %v\n", rule.IsEnabled)
+	fmt.Printf("Enabled: %v\n", rule.Enabled())
 	fmt.Printf("Sequence: %d\n", rule.Sequence)
 	fmt.Printf("Read-only: %v\n", rule.IsReadOnly)
 
@@ -336,7 +336,7 @@ func runRulesCreate(cmd *cobra.Command, args []string) error {
 
 		rule = &mail.MessageRule{
 			DisplayName: createName,
-			IsEnabled:   !createDisabled,
+			IsEnabled:   mail.BoolPtr(!createDisabled),
 		}
 
 		// Build conditions
@@ -448,7 +448,7 @@ func runRulesCreate(cmd *cobra.Command, args []string) error {
 
 	printSuccess("Rule created: %s", created.DisplayName)
 	printInfo("  ID: %s", created.ID)
-	printInfo("  Enabled: %v", created.IsEnabled)
+	printInfo("  Enabled: %v", created.Enabled())
 
 	return nil
 }
