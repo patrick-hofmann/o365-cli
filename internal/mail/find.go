@@ -74,6 +74,8 @@ func (r FindRequest) endpoint() (string, error) {
 	return graph.GraphAPIBaseURL + "/users/" + url.PathEscape(r.Account) + "/mailFolders/inbox/messages?" + query.Encode(), nil
 }
 
+func (r FindRequest) Validate() error { _, err := r.endpoint(); return err }
+
 // FindMessages returns at most Top Inbox messages matching the category filter, newest first unless Oldest is set.
 func FindMessages(ctx context.Context, client *graph.Client, r FindRequest) (*WorkflowReply, error) {
 	endpoint, err := r.endpoint()

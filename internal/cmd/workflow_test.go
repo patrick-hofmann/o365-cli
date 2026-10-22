@@ -71,3 +71,22 @@ func TestLabelRequestRejectsCrossAccountAndUnknownPolicyBeforeAuthentication(t *
 		}
 	}
 }
+
+// An out-of-range --top never reaches Graph, so find must fail instead of reporting an empty result.
+func TestFindRejectsAnOutOfRangeTopWithAnError(t *testing.T) {
+	saved := accountFlag
+	defer func() { accountFlag = saved }()
+	accountFlag = "owner@example.invalid"
+	for _, top := range []string{"0", "51"} {
+		command := newWorkflowCommand()
+		var output bytes.Buffer
+		command.SetOut(&output)
+		command.SetArgs([]string{"find", "--folder", "inbox", "--top", top})
+		if err := command.Execute(); err == nil || !strings.Contains(err.Error(), "--top 1..50") {
+			t.Fatalf("--top %s accepted: %v", top, err)
+		}
+		if strings.Contains(output.String(), `"items":null`) {
+			t.Fatalf("--top %s printed a reply: %s", top, output.String())
+		}
+	}
+}

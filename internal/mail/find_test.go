@@ -63,3 +63,18 @@ func TestFindSnapshotReadsOnlyTheFirstMessage(t *testing.T) {
 		t.Fatal("snapshot returned without --snapshot")
 	}
 }
+
+func TestFindSerialisesAnEmptyResultAsAnArray(t *testing.T) {
+	client := graph.NewReadOnlyClient(context.Background(), "synthetic-secret")
+	client.HttpClient.Transport = fixtureTransport(func(_ *http.Request) (*http.Response, error) {
+		return fixtureResponse(`{"value":[]}`), nil
+	})
+	reply, err := FindMessages(context.Background(), client, FindRequest{Account: "pod@example.invalid", Top: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(reply)
+	if err != nil || !strings.Contains(string(body), `"items":[]`) {
+		t.Fatalf("items not an array: %s %v", body, err)
+	}
+}

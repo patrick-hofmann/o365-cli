@@ -39,6 +39,10 @@ func findCommand(use, short string, snapshot bool) *cobra.Command {
 			if folder != "inbox" {
 				return refuse(errors.New("find supports only --folder inbox"))
 			}
+			// A malformed request never reached Graph, so it is the caller's error and must not exit 0.
+			if err := request.Validate(); err != nil {
+				return err
+			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), time.Minute)
 			defer cancel()
 			token, err := getAccessTokenForAccount(ctx, request.Account)
