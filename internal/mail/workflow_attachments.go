@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -38,7 +37,9 @@ func SaveMessagePDFs(ctx context.Context, client *graph.Client, account, message
 		return nil, errors.New("--save-to must be an existing absolute directory, not a symlink")
 	}
 	reply := &WorkflowReply{Protocol: "pods-mail/v1", Account: account, Operation: "attachments", Outcome: "confirmed", Items: []json.RawMessage{}}
-	endpoint := graph.GraphAPIBaseURL + "/users/" + url.PathEscape(account) + "/messages/" + url.PathEscape(message) + "/attachments"
+	base := graph.GraphAPIBaseURL + "/users/" + url.PathEscape(account) + "/messages/" + url.PathEscape(message) + "/attachments"
+	// Without $select Graph inlines every attachment's contentBytes, which breaks the response cap on large mails.
+	endpoint := base + "?$select=id,name,contentType,isInline,size"
 	for pages := 0; endpoint != ""; pages++ {
 		if pages >= 10 {
 			return nil, errors.New("attachment pagination did not terminate")
@@ -49,12 +50,12 @@ func SaveMessagePDFs(ctx context.Context, client *graph.Client, account, message
 		}
 		var page struct {
 			Value []struct {
-				Type         string `json:"@odata.type"`
-				Name         string `json:"name"`
-				ContentType  string `json:"contentType"`
-				IsInline     bool   `json:"isInline"`
-				Size         int    `json:"size"`
-				ContentBytes string `json:"contentBytes"`
+				Type        string `json:"@odata.type"`
+				ID          string `json:"id"`
+				Name        string `json:"name"`
+				ContentType string `json:"contentType"`
+				IsInline    bool   `json:"isInline"`
+				Size        int    `json:"size"`
 			} `json:"value"`
 			Next string `json:"@odata.nextLink"`
 		}
@@ -69,8 +70,11 @@ func SaveMessagePDFs(ctx context.Context, client *graph.Client, account, message
 			if a.Size > maxPDFBytes {
 				return nil, fmt.Errorf("attachment %q exceeds 20 MiB", a.Name)
 			}
-			content, err := base64.StdEncoding.DecodeString(a.ContentBytes)
-			if err != nil || !bytes.HasPrefix(content, []byte("%PDF-")) {
+			content, err := client.DoRequest(http.MethodGet, base+"/"+url.PathEscape(a.ID)+"/$value", nil)
+			if err != nil {
+				return nil, err
+			}
+			if !bytes.HasPrefix(content, []byte("%PDF-")) {
 				return nil, fmt.Errorf("attachment %q is not a readable PDF", a.Name)
 			}
 			sum := sha256.Sum256(content)
