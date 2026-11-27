@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/public"
@@ -80,8 +81,25 @@ func NewCategoryListOAuthClient(clientID, cacheDir string) (*OAuthClient, error)
 }
 
 // NewTeamsOAuthClient requests only TeamsScopes, which `auth login --teams` consents to.
+// Its tokens live in TeamsCacheDir, so a Teams-only account never shows up in the mail account selection.
 func NewTeamsOAuthClient(clientID, cacheDir string) (*OAuthClient, error) {
-	return newOAuthClient(clientID, cacheDir, TeamsScopes, nil)
+	dir, err := TeamsCacheDir(cacheDir)
+	if err != nil {
+		return nil, err
+	}
+	return newOAuthClient(clientID, dir, TeamsScopes, nil)
+}
+
+// TeamsCacheDir is the separate token cache directory of the Teams login below cacheDir.
+func TeamsCacheDir(cacheDir string) (string, error) {
+	if cacheDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", errors.New("cannot resolve token cache directory")
+		}
+		cacheDir = filepath.Join(home, ".o365-cli")
+	}
+	return filepath.Join(cacheDir, "teams"), nil
 }
 
 func NewReadOnlyOAuthClient(clientID, cacheDir string) (*OAuthClient, error) {

@@ -104,7 +104,9 @@ o365-cli auth logout --all               # Logout all accounts
 `o365-cli auth login --teams` asks only for the Teams permissions (`Chat.ReadWrite`,
 `ChannelMessage.Send`, `Team.ReadBasic.All`, `Channel.ReadBasic.All`), separately from
 mail, so a tenant that refuses them cannot break mail. Sign in with the account that
-should get Teams access; `auth status` shows per account whether Teams is granted.
+should get Teams access. Its token is kept in its own cache (`~/.o365-cli/teams/`), so a
+Teams-only login never adds an account to the mail commands; `auth status` shows per account
+whether it has a Teams login, and `auth logout` removes both.
 When the tenant refuses, the login prints the AADSTS code and what it means:
 `AADSTS53003` is Conditional Access blocking the app, `AADSTS65001` means an admin must
 approve the permissions.

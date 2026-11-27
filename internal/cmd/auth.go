@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"regexp"
 	"runtime"
+	"slices"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -163,7 +164,11 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 	printSuccess("Successfully logged in as %s", result.Email)
 	printInfo("Token valid until: %s", result.ExpiresAt.Format(time.RFC1123))
-	printInfo("Token saved in: %s/token.json", cfg.CacheDir)
+	cacheDir := cfg.CacheDir
+	if loginTeams {
+		cacheDir, _ = auth.TeamsCacheDir(cfg.CacheDir)
+	}
+	printInfo("Token saved in: %s/token.json", cacheDir)
 
 	return nil
 }
@@ -175,11 +180,18 @@ func runLogout(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create OAuth client: %w", err)
 	}
+	teamsClient, err := auth.NewTeamsOAuthClient(cfg.ClientID, cfg.CacheDir)
+	if err != nil {
+		return fmt.Errorf("failed to create OAuth client: %w", err)
+	}
 
 	// --all flag: Logout all accounts
 	if logoutAll {
 		if err := oauthClient.LogoutAll(ctx); err != nil {
 			return fmt.Errorf("logout failed: %w", err)
+		}
+		if err := teamsClient.LogoutAll(ctx); err != nil {
+			return fmt.Errorf("Teams logout failed: %w", err)
 		}
 		if err := config.RemoveAllAccounts(); err != nil {
 			printError(fmt.Errorf("failed to remove accounts from config: %w", err))
@@ -195,16 +207,28 @@ func runLogout(cmd *cobra.Command, args []string) error {
 	}
 	email := args[0]
 
-	// Check if account exists
-	status, _ := oauthClient.GetStatus(ctx, email)
-	if status == nil || !status.LoggedIn {
+	// Logout from mail and Teams; each cache may hold the account or not
+	mail, err := hasAccount(ctx, oauthClient, email)
+	if err != nil {
+		return fmt.Errorf("logout failed: %w", err)
+	}
+	teams, err := hasAccount(ctx, teamsClient, email)
+	if err != nil {
+		return fmt.Errorf("Teams logout failed: %w", err)
+	}
+	if !mail && !teams {
 		printInfo("Account %s is not logged in.", email)
 		return nil
 	}
-
-	// Logout
-	if err := oauthClient.Logout(ctx, email); err != nil {
-		return fmt.Errorf("logout failed: %w", err)
+	if mail {
+		if err := oauthClient.Logout(ctx, email); err != nil {
+			return fmt.Errorf("logout failed: %w", err)
+		}
+	}
+	if teams {
+		if err := teamsClient.Logout(ctx, email); err != nil {
+			return fmt.Errorf("Teams logout failed: %w", err)
+		}
 	}
 
 	// Remove from accounts.yaml
@@ -231,26 +255,37 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get status: %w", err)
 	}
 
+	// Teams state comes from its own cache without a token request: an account is there only after a Teams login
+	teamsClient, err := auth.NewTeamsOAuthClient(cfg.ClientID, cfg.CacheDir)
+	if err != nil {
+		return fmt.Errorf("failed to create OAuth client: %w", err)
+	}
+	teamsAccounts, err := teamsClient.ListAccounts(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to read Teams logins: %w", err)
+	}
+	teamsLoggedIn := map[string]bool{}
+	for _, email := range teamsAccounts {
+		teamsLoggedIn[email] = true
+	}
+
 	fmt.Println()
 	fmt.Println("Auth Status")
 	fmt.Println("───────────")
 
-	if len(statuses) == 0 {
+	if len(statuses) == 0 && len(teamsAccounts) == 0 {
 		printInfo("Status: Not logged in")
 		printInfo("\nUse 'auth login' to sign in.")
 		return nil
 	}
 
 	hasExpiredToken := false
-	teamsClient, err := auth.NewTeamsOAuthClient(cfg.ClientID, cfg.CacheDir)
-	if err != nil {
-		return fmt.Errorf("failed to create OAuth client: %w", err)
-	}
 
 	for _, status := range statuses {
-		teams := "Teams: not granted"
-		if _, err := teamsClient.GetAccessToken(ctx, status.Email); err == nil {
-			teams = "Teams: granted"
+		teams := "Teams: not logged in"
+		if teamsLoggedIn[status.Email] {
+			teams = "Teams: logged in"
+			delete(teamsLoggedIn, status.Email)
 		}
 		if status.TokenExpired {
 			fmt.Printf("  %s (token expired, %s)\n", status.Email, teams)
@@ -264,6 +299,12 @@ func runStatus(cmd *cobra.Command, args []string) error {
 				remainingStr = fmt.Sprintf("%.0fm", remaining.Minutes())
 			}
 			fmt.Printf("  %s (valid, %s remaining, %s)\n", status.Email, remainingStr, teams)
+		}
+	}
+
+	for _, email := range teamsAccounts {
+		if teamsLoggedIn[email] {
+			fmt.Printf("  %s (Teams only, no mail login)\n", email)
 		}
 	}
 
@@ -367,6 +408,15 @@ func runDebug(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// hasAccount reports whether the client's token cache holds email.
+func hasAccount(ctx context.Context, client *auth.OAuthClient, email string) (bool, error) {
+	accounts, err := client.ListAccounts(ctx)
+	if err != nil {
+		return false, err
+	}
+	return slices.Contains(accounts, email), nil
 }
 
 var aadstsCode = regexp.MustCompile(`AADSTS\d+`)
