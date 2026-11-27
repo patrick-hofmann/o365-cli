@@ -73,8 +73,9 @@ var teamsChannelsCmd = &cobra.Command{
 
 var teamsChannelMessagesCmd = &cobra.Command{
 	Use:   "channel-messages TEAM_ID CHANNEL_ID",
-	Short: "Show the newest posts of a team channel",
-	Long: `Shows sender, time, plain text and reply count of the newest top-level posts of a channel, newest first.
+	Short: "Show the most recently active posts of a team channel",
+	Long: `Shows sender, time, plain text and reply count of the most recently active top-level posts of a
+channel. Graph orders posts by the last activity in their thread, so a new reply moves an old post to the top.
 Needs the separate channel message login (o365-cli auth login --channel-messages), which a tenant admin
 must accept for the organisation. Get TEAM_ID from 'teams list' and CHANNEL_ID from 'teams channels'.
 

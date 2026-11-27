@@ -174,7 +174,8 @@ func (c *Client) ListMessages(chatID string, limit int) ([]Message, error) {
 	return msgs, nil
 }
 
-// ListChannelMessages returns the newest limit top-level posts of a channel with their reply count, newest first.
+// ListChannelMessages returns the limit most recently active top-level posts of a channel with their reply count.
+// Graph orders them by the last change of the whole thread (a new reply moves an old post up) and supports no $orderby.
 // System events count towards limit but are left out, as in ListMessages.
 // ponytail: Replies counts the replies Graph expands with a post (up to 1000); fetch /replies if threads get longer.
 func (c *Client) ListChannelMessages(teamID, channelID string, limit int) ([]ChannelMessage, error) {

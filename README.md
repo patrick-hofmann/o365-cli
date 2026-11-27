@@ -128,7 +128,7 @@ consent to, so it has its own login and cache (`~/.o365-cli/channel-messages/`):
 of the organisation. `auth login --teams` keeps working without it; `auth status` shows both.
 
 ```bash
-o365-cli teams channel-messages TEAM_ID CHANNEL_ID --limit 20 # sender, time, plain text, attachments, replies; newest first
+o365-cli teams channel-messages TEAM_ID CHANNEL_ID --limit 20 # sender, time, plain text, attachments, replies; most recently active thread first
 ```
 
 `teams send` posts a plain-text message as the signed-in user (no HTML, no attachments) and
