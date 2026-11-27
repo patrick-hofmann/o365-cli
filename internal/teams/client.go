@@ -40,6 +40,12 @@ type Message struct {
 	Attachments []string `json:"attachments"`
 }
 
+// ChannelMessage is a top-level channel post; Replies counts its thread replies.
+type ChannelMessage struct {
+	Message
+	Replies int `json:"replies"`
+}
+
 type Team struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -119,46 +125,72 @@ func (c *Client) ListChats(limit int) ([]Chat, error) {
 	return chats, nil
 }
 
+type rawMessage struct {
+	ID              string    `json:"id"`
+	MessageType     string    `json:"messageType"`
+	CreatedDateTime time.Time `json:"createdDateTime"`
+	From            *struct {
+		User        *identity `json:"user"`
+		Application *identity `json:"application"`
+	} `json:"from"`
+	Body struct {
+		ContentType string `json:"contentType"`
+		Content     string `json:"content"`
+	} `json:"body"`
+	Attachments []struct {
+		Name string `json:"name"`
+	} `json:"attachments"`
+}
+
+func (r rawMessage) message() Message {
+	msg := Message{ID: r.ID, Time: r.CreatedDateTime, Text: r.Body.Content, Attachments: []string{}}
+	for _, a := range r.Attachments {
+		msg.Attachments = append(msg.Attachments, a.Name)
+	}
+	if r.Body.ContentType == "html" {
+		msg.Text = HTMLToText(r.Body.Content)
+	}
+	if r.From != nil && r.From.User != nil {
+		msg.Sender = r.From.User.DisplayName
+	} else if r.From != nil && r.From.Application != nil {
+		msg.Sender = r.From.Application.DisplayName
+	}
+	return msg
+}
+
 // ListMessages returns the newest limit messages of a chat, newest first.
 // System events (members added, calls) count towards limit but are left out.
 func (c *Client) ListMessages(chatID string, limit int) ([]Message, error) {
-	raw, err := list[struct {
-		ID              string    `json:"id"`
-		MessageType     string    `json:"messageType"`
-		CreatedDateTime time.Time `json:"createdDateTime"`
-		From            *struct {
-			User        *identity `json:"user"`
-			Application *identity `json:"application"`
-		} `json:"from"`
-		Body struct {
-			ContentType string `json:"contentType"`
-			Content     string `json:"content"`
-		} `json:"body"`
-		Attachments []struct {
-			Name string `json:"name"`
-		} `json:"attachments"`
-	}](c, fmt.Sprintf("/me/chats/%s/messages?$orderby=createdDateTime%%20desc&$top=%d", url.PathEscape(chatID), pageSize(limit)), limit)
+	raw, err := list[rawMessage](c, fmt.Sprintf("/me/chats/%s/messages?$orderby=createdDateTime%%20desc&$top=%d", url.PathEscape(chatID), pageSize(limit)), limit)
 	if err != nil {
 		return nil, err
 	}
 	msgs := []Message{}
 	for _, r := range raw {
-		if r.MessageType != "message" {
-			continue
+		if r.MessageType == "message" {
+			msgs = append(msgs, r.message())
 		}
-		msg := Message{ID: r.ID, Time: r.CreatedDateTime, Text: r.Body.Content, Attachments: []string{}}
-		for _, a := range r.Attachments {
-			msg.Attachments = append(msg.Attachments, a.Name)
+	}
+	return msgs, nil
+}
+
+// ListChannelMessages returns the limit most recently active top-level posts of a channel with their reply count.
+// Graph orders them by the last change of the whole thread (a new reply moves an old post up) and supports no $orderby.
+// System events count towards limit but are left out, as in ListMessages.
+// ponytail: Replies counts the replies Graph expands with a post (up to 1000); fetch /replies if threads get longer.
+func (c *Client) ListChannelMessages(teamID, channelID string, limit int) ([]ChannelMessage, error) {
+	raw, err := list[struct {
+		rawMessage
+		Replies []struct{} `json:"replies"`
+	}](c, fmt.Sprintf("/teams/%s/channels/%s/messages?$expand=replies&$top=%d", url.PathEscape(teamID), url.PathEscape(channelID), pageSize(limit)), limit)
+	if err != nil {
+		return nil, err
+	}
+	msgs := []ChannelMessage{}
+	for _, r := range raw {
+		if r.MessageType == "message" {
+			msgs = append(msgs, ChannelMessage{Message: r.message(), Replies: len(r.Replies)})
 		}
-		if r.Body.ContentType == "html" {
-			msg.Text = HTMLToText(r.Body.Content)
-		}
-		if r.From != nil && r.From.User != nil {
-			msg.Sender = r.From.User.DisplayName
-		} else if r.From != nil && r.From.Application != nil {
-			msg.Sender = r.From.Application.DisplayName
-		}
-		msgs = append(msgs, msg)
 	}
 	return msgs, nil
 }
