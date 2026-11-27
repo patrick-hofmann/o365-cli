@@ -111,6 +111,17 @@ When the tenant refuses, the login prints the AADSTS code and what it means:
 `AADSTS53003` is Conditional Access blocking the app, `AADSTS65001` means an admin must
 approve the permissions.
 
+After the Teams login, these commands print JSON (with several Teams logins, pass `--account`):
+
+```bash
+o365-cli teams chats --limit 10            # id, topic, chatType, members, lastMessageTime; newest first
+o365-cli teams messages CHAT_ID --limit 20 # sender, time, plain text, attachment names; newest first
+o365-cli teams list                        # joined teams: id, name, description
+o365-cli teams channels TEAM_ID            # id, name, description, membershipType
+```
+
+System events in a chat (members added, calls) count towards `--limit` but are left out.
+
 ### Multi-Account Behavior
 
 **Read commands** (list, search, today) automatically show data from **all logged-in accounts**. Use `--account` to filter to a specific account:
@@ -258,6 +269,7 @@ allow:
 | `calendar.write` | Create and update events |
 | `calendar.delete` | Delete events |
 | `calendar.respond` | Accept/decline/tentative |
+| `teams.read` | List Teams chats, chat messages, teams and channels |
 | `folders.read` | List folders |
 | `folders.manage` | Create/delete folders |
 | `rules.read` | List inbox rules |
