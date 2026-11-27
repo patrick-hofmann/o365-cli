@@ -1,4 +1,4 @@
-// Package teams reads Microsoft Teams chats, teams and channels through Microsoft Graph.
+// Package teams reads Microsoft Teams chats, teams and channels and posts messages through Microsoft Graph.
 package teams
 
 import (
@@ -13,7 +13,7 @@ import (
 	"github.com/yourname/o365-cli/internal/graph"
 )
 
-// Client wraps the generic Graph client with Teams read operations.
+// Client wraps the generic Graph client with Teams operations.
 type Client struct {
 	*graph.Client
 }
@@ -242,4 +242,31 @@ func HTMLToText(s string) string {
 	s = html.UnescapeString(anyTag.ReplaceAllString(s, ""))
 	s = strings.ReplaceAll(s, " ", " ")
 	return strings.TrimSpace(blanks.ReplaceAllString(s, "\n\n"))
+}
+
+// Sent is the message SendMessage posted.
+type Sent struct {
+	ID     string `json:"id"`
+	WebURL string `json:"webUrl"`
+}
+
+// SendMessage posts text as plain text to a chat (chatID) or a channel (teamID and channelID).
+func (c *Client) SendMessage(chatID, teamID, channelID, text string) (*Sent, error) {
+	path := fmt.Sprintf("/chats/%s/messages", url.PathEscape(chatID))
+	if chatID == "" {
+		path = fmt.Sprintf("/teams/%s/channels/%s/messages", url.PathEscape(teamID), url.PathEscape(channelID))
+	}
+	body, err := json.Marshal(map[string]any{"body": map[string]string{"contentType": "text", "content": text}})
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.DoRequest("POST", graph.GraphAPIBaseURL+path, body)
+	if err != nil {
+		return nil, err
+	}
+	var sent Sent
+	if err := json.Unmarshal(resp, &sent); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+	return &sent, nil
 }

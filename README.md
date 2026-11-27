@@ -131,6 +131,17 @@ of the organisation. `auth login --teams` keeps working without it; `auth status
 o365-cli teams channel-messages TEAM_ID CHANNEL_ID --limit 20 # sender, time, plain text, attachments, replies; newest first
 ```
 
+`teams send` posts a plain-text message as the signed-in user (no HTML, no attachments) and
+prints the `id` and `webUrl` of the new message:
+
+```bash
+o365-cli teams send --chat CHAT_ID --text "On my way"
+o365-cli teams send --team TEAM_ID --channel CHANNEL_ID --text "Build is green"
+```
+
+A sent message cannot be recalled unseen. Agents send only after the owner saw and approved
+the recipient and the exact text, as for mail; the CLI does not enforce this.
+
 ### Multi-Account Behavior
 
 **Read commands** (list, search, today) automatically show data from **all logged-in accounts**. Use `--account` to filter to a specific account:
@@ -279,6 +290,7 @@ allow:
 | `calendar.delete` | Delete events |
 | `calendar.respond` | Accept/decline/tentative |
 | `teams.read` | List Teams chats, chat messages, teams, channels and channel messages |
+| `teams.send` | Post plain-text messages to Teams chats and channels |
 | `folders.read` | List folders |
 | `folders.manage` | Create/delete folders |
 | `rules.read` | List inbox rules |
