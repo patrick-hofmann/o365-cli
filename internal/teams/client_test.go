@@ -47,3 +47,15 @@ func TestListChatsAndMessages(t *testing.T) {
 		t.Fatalf("ListMessages = %+v, %v", msgs, err)
 	}
 }
+
+func TestListChannelMessages(t *testing.T) {
+	c := newFake(fakeGraph{
+		"/v1.0/teams/t1/channels/19:c@thread.tacv2/messages": `{"value":[
+			{"id":"2","messageType":"message","createdDateTime":"2026-11-27T10:00:00Z","from":{"user":{"displayName":"Anna"}},"body":{"contentType":"html","content":"<p>Release&nbsp;today</p>"},"replies":[{"id":"3"},{"id":"4"}]},
+			{"id":"1","messageType":"systemEventMessage","createdDateTime":"2026-11-27T09:00:00Z","body":{"contentType":"html","content":"<systemEventMessage/>"}}]}`,
+	})
+	msgs, err := c.ListChannelMessages("t1", "19:c@thread.tacv2", 5)
+	if err != nil || len(msgs) != 1 || msgs[0].Sender != "Anna" || msgs[0].Text != "Release today" || msgs[0].Replies != 2 {
+		t.Fatalf("ListChannelMessages = %+v, %v", msgs, err)
+	}
+}

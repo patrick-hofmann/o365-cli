@@ -122,6 +122,15 @@ o365-cli teams channels TEAM_ID            # id, name, description, membershipTy
 
 System events in a chat (members added, calls) count towards `--limit` but are left out.
 
+Reading team channels needs `ChannelMessage.Read.All`, which only a tenant admin can
+consent to, so it has its own login and cache (`~/.o365-cli/channel-messages/`):
+`o365-cli auth login --channel-messages`, signed in as a tenant admin who accepts on behalf
+of the organisation. `auth login --teams` keeps working without it; `auth status` shows both.
+
+```bash
+o365-cli teams channel-messages TEAM_ID CHANNEL_ID --limit 20 # sender, time, plain text, attachments, replies; newest first
+```
+
 ### Multi-Account Behavior
 
 **Read commands** (list, search, today) automatically show data from **all logged-in accounts**. Use `--account` to filter to a specific account:
@@ -269,7 +278,7 @@ allow:
 | `calendar.write` | Create and update events |
 | `calendar.delete` | Delete events |
 | `calendar.respond` | Accept/decline/tentative |
-| `teams.read` | List Teams chats, chat messages, teams and channels |
+| `teams.read` | List Teams chats, chat messages, teams, channels and channel messages |
 | `folders.read` | List folders |
 | `folders.manage` | Create/delete folders |
 | `rules.read` | List inbox rules |

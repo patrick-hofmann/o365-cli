@@ -30,4 +30,10 @@ func TestLoginTeamsExcludesCategories(t *testing.T) {
 	if err := loginCmd.ValidateFlagGroups(); err == nil {
 		t.Fatal("--teams with --categories was accepted")
 	}
+	loginCmd.Flags().Lookup("categories").Changed = false
+	loginCmd.Flags().Set("channel-messages", "true")
+	defer func() { loginChannelMessages = false }()
+	if err := loginCmd.ValidateFlagGroups(); err == nil {
+		t.Fatal("--teams with --channel-messages was accepted")
+	}
 }
