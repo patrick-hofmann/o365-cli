@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"time"
 
@@ -21,7 +22,7 @@ var authCmd = &cobra.Command{
 	Long:  "Commands for login, logout, and OAuth2 authentication status.",
 }
 
-var loginCategories bool
+var loginCategories, loginTeams bool
 
 var loginCmd = &cobra.Command{
 	Use:   "login",
@@ -83,6 +84,8 @@ Examples:
 func init() {
 	logoutCmd.Flags().BoolVar(&logoutAll, "all", false, "Logout all accounts")
 	loginCmd.Flags().BoolVar(&loginCategories, "categories", false, "Also allow workflow ensure-categories to add names to the Outlook category list")
+	loginCmd.Flags().BoolVar(&loginTeams, "teams", false, "Grant only Microsoft Teams access (chats, teams, channels), separately from mail")
+	loginCmd.MarkFlagsMutuallyExclusive("categories", "teams")
 
 	authCmd.AddCommand(loginCmd)
 	authCmd.AddCommand(logoutCmd)
@@ -94,8 +97,12 @@ func init() {
 func runLogin(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
-	// Create OAuth client
-	oauthClient, err := auth.NewOAuthClient(cfg.ClientID, cfg.CacheDir)
+	// Create OAuth client; --teams asks for the Teams scopes alone so mail consent stays untouched
+	newClient := auth.NewOAuthClient
+	if loginTeams {
+		newClient = auth.NewTeamsOAuthClient
+	}
+	oauthClient, err := newClient(cfg.ClientID, cfg.CacheDir)
 	if err != nil {
 		return fmt.Errorf("failed to create OAuth client: %w", err)
 	}
@@ -140,12 +147,17 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	result := <-resultChan
 
 	if result.Error != nil {
+		if hint := consentHint(result.Error); hint != "" {
+			printInfo("%s", hint)
+		}
 		return fmt.Errorf("authentication failed: %w", result.Error)
 	}
 
-	// Add account to accounts.yaml
-	if err := config.AddAccount(result.Email); err != nil {
-		printError(fmt.Errorf("failed to save account: %w", err))
+	// Add account to accounts.yaml; a Teams-only login must not make an account look usable for mail
+	if !loginTeams {
+		if err := config.AddAccount(result.Email); err != nil {
+			printError(fmt.Errorf("failed to save account: %w", err))
+		}
 	}
 
 	fmt.Println()
@@ -230,10 +242,18 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	hasExpiredToken := false
+	teamsClient, err := auth.NewTeamsOAuthClient(cfg.ClientID, cfg.CacheDir)
+	if err != nil {
+		return fmt.Errorf("failed to create OAuth client: %w", err)
+	}
 
 	for _, status := range statuses {
+		teams := "Teams: not granted"
+		if _, err := teamsClient.GetAccessToken(ctx, status.Email); err == nil {
+			teams = "Teams: granted"
+		}
 		if status.TokenExpired {
-			fmt.Printf("  %s (token expired)\n", status.Email)
+			fmt.Printf("  %s (token expired, %s)\n", status.Email, teams)
 			hasExpiredToken = true
 		} else {
 			remaining := time.Until(status.ExpiresAt)
@@ -243,7 +263,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			} else {
 				remainingStr = fmt.Sprintf("%.0fm", remaining.Minutes())
 			}
-			fmt.Printf("  %s (valid, %s remaining)\n", status.Email, remainingStr)
+			fmt.Printf("  %s (valid, %s remaining, %s)\n", status.Email, remainingStr, teams)
 		}
 	}
 
@@ -347,6 +367,23 @@ func runDebug(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+var aadstsCode = regexp.MustCompile(`AADSTS\d+`)
+
+// consentHint names the AADSTS code of a refused login and what the tenant does; empty without a code.
+func consentHint(err error) string {
+	code := aadstsCode.FindString(err.Error())
+	switch code {
+	case "":
+		return ""
+	case "AADSTS53003":
+		return code + ": the tenant's Conditional Access blocks this app; only its admin can allow it."
+	case "AADSTS65001", "AADSTS90094", "AADSTS90095":
+		return code + ": the tenant needs an admin to approve these permissions for this app."
+	default:
+		return code + ": the tenant refused the login; it may need admin approval or block this app."
+	}
 }
 
 // spaces returns n spaces

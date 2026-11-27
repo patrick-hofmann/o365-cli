@@ -99,6 +99,16 @@ o365-cli auth logout user@example.com    # Logout specific account
 o365-cli auth logout --all               # Logout all accounts
 ```
 
+#### Microsoft Teams
+
+`o365-cli auth login --teams` asks only for the Teams permissions (`Chat.ReadWrite`,
+`ChannelMessage.Send`, `Team.ReadBasic.All`, `Channel.ReadBasic.All`), separately from
+mail, so a tenant that refuses them cannot break mail. Sign in with the account that
+should get Teams access; `auth status` shows per account whether Teams is granted.
+When the tenant refuses, the login prints the AADSTS code and what it means:
+`AADSTS53003` is Conditional Access blocking the app, `AADSTS65001` means an admin must
+approve the permissions.
+
 ### Multi-Account Behavior
 
 **Read commands** (list, search, today) automatically show data from **all logged-in accounts**. Use `--account` to filter to a specific account:

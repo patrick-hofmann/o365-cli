@@ -37,6 +37,15 @@ var Scopes = []string{
 // Only `auth login --categories` consents to it; every other command keeps requesting only Scopes.
 const CategoryListScope = "https://graph.microsoft.com/MailboxSettings.ReadWrite"
 
+// TeamsScopes let agents read and post Teams chats and list teams and channels.
+// Only `auth login --teams` consents to them, separately from Scopes, so a tenant that refuses Teams cannot break mail.
+var TeamsScopes = []string{
+	"https://graph.microsoft.com/Chat.ReadWrite",
+	"https://graph.microsoft.com/ChannelMessage.Send",
+	"https://graph.microsoft.com/Team.ReadBasic.All",
+	"https://graph.microsoft.com/Channel.ReadBasic.All",
+}
+
 // OAuthClient manages OAuth2 authentication
 type OAuthClient struct {
 	clientID   string
@@ -68,6 +77,11 @@ func (c *OAuthClient) ConsentToCategoryList() {
 // NewCategoryListOAuthClient requests only the category list scope, which `auth login --categories` consents to.
 func NewCategoryListOAuthClient(clientID, cacheDir string) (*OAuthClient, error) {
 	return newOAuthClient(clientID, cacheDir, []string{CategoryListScope}, nil)
+}
+
+// NewTeamsOAuthClient requests only TeamsScopes, which `auth login --teams` consents to.
+func NewTeamsOAuthClient(clientID, cacheDir string) (*OAuthClient, error) {
+	return newOAuthClient(clientID, cacheDir, TeamsScopes, nil)
 }
 
 func NewReadOnlyOAuthClient(clientID, cacheDir string) (*OAuthClient, error) {
