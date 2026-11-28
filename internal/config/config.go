@@ -150,15 +150,19 @@ func Save(cfg *Config) error {
 	viper.Set("lock_dir", cfg.LockDir)
 
 	// Save
-	configPath := filepath.Join(configDir, ConfigFileName+".yaml")
-	if File != "" {
-		configPath = File
-	}
-	if err := viper.WriteConfigAs(configPath); err != nil {
+	if err := viper.WriteConfigAs(FilePath()); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
 	return nil
+}
+
+// FilePath returns the config file in use: --config if set, else ~/.o365-cli/config.yaml.
+func FilePath() string {
+	if File != "" {
+		return File
+	}
+	return filepath.Join(GetConfigDir(), ConfigFileName+".yaml")
 }
 
 // GetConfigDir returns the configuration directory
