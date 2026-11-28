@@ -54,6 +54,7 @@ Examples:
 		// Load configuration
 		var err error
 		config.File = cfgFile
+		config.AllowMissingFile = cmd == configSetCmd
 		cfg, err = config.Load()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
