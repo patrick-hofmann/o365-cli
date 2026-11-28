@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/spf13/viper"
@@ -181,6 +182,12 @@ func SetValue(key, value string) error {
 		cfg.CurrentAccount = value
 	case "lock_dir":
 		cfg.LockDir = value
+	case "debug":
+		b, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("debug must be true or false, got %q", value)
+		}
+		cfg.Debug = b
 	default:
 		return fmt.Errorf("unknown config key: %s", key)
 	}
@@ -204,6 +211,8 @@ func GetValue(key string) (string, error) {
 		return cfg.CacheDir, nil
 	case "lock_dir":
 		return cfg.LockDir, nil
+	case "debug":
+		return strconv.FormatBool(cfg.Debug), nil
 	default:
 		return "", fmt.Errorf("unknown config key: %s", key)
 	}

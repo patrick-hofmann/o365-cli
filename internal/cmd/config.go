@@ -29,12 +29,13 @@ var configSetCmd = &cobra.Command{
 Available keys:
   client_id       - Azure App Client ID
   current_account - Active account (email address)
-  imap_server     - IMAP server (default: outlook.office365.com)
-  smtp_server     - SMTP server (default: smtp.office365.com)
+  lock_dir        - Directory for cross-process locks (absolute path)
+  debug           - Debug output (true or false)
 
 Examples:
   o365-cli config set client_id "your-client-id"
-  o365-cli config set current_account "user@example.com"`,
+  o365-cli config set current_account "user@example.com"
+  o365-cli config set debug true`,
 	Annotations: map[string]string{profile.AnnotationKey: "config.write"},
 	Args:        cobra.ExactArgs(2),
 	RunE:        runConfigSet,
