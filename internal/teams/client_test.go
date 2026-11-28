@@ -95,3 +95,24 @@ func TestSendMessage(t *testing.T) {
 		}
 	}
 }
+
+func TestOneOnOneChat(t *testing.T) {
+	rec := &recorder{}
+	c := NewClient("token")
+	c.HttpClient.Transport = rec
+	id, err := c.OneOnOneChat("me@example.com", "you@example.com")
+	if err != nil || id != "171" {
+		t.Fatalf("id, err = %q, %v", id, err)
+	}
+	if rec.method != "POST" || rec.path != "/v1.0/chats" {
+		t.Errorf("request = %s %s, want POST /v1.0/chats", rec.method, rec.path)
+	}
+	for _, want := range []string{`"chatType":"oneOnOne"`, `users('me@example.com')`, `users('you@example.com')`} {
+		if !strings.Contains(rec.body, want) {
+			t.Errorf("body %s lacks %s", rec.body, want)
+		}
+	}
+	if _, err := newFake(fakeGraph{}).OneOnOneChat("me@example.com", "nobody@example.com"); err == nil || !strings.Contains(err.Error(), "nothing was sent") {
+		t.Errorf("unknown user: err = %v, want an error saying nothing was sent", err)
+	}
+}
