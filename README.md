@@ -99,6 +99,52 @@ o365-cli auth logout user@example.com    # Logout specific account
 o365-cli auth logout --all               # Logout all accounts
 ```
 
+#### Microsoft Teams
+
+`o365-cli auth login --teams` asks only for the Teams permissions (`Chat.ReadWrite`,
+`ChannelMessage.Send`, `Team.ReadBasic.All`, `Channel.ReadBasic.All`), separately from
+mail, so a tenant that refuses them cannot break mail. Sign in with the account that
+should get Teams access. Its token is kept in its own cache (`~/.o365-cli/teams/`), so a
+Teams-only login never adds an account to the mail commands; `auth status` shows per account
+whether it has a Teams login, and `auth logout` removes both.
+When the tenant refuses, the login prints the AADSTS code and what it means:
+`AADSTS53003` is Conditional Access blocking the app, `AADSTS65001` means an admin must
+approve the permissions.
+
+After the Teams login, these commands print JSON (with several Teams logins, pass `--account`):
+
+```bash
+o365-cli teams chats --limit 10            # id, topic, chatType, members, lastMessageTime; newest first
+o365-cli teams messages CHAT_ID --limit 20 # sender, time, plain text, attachment names; newest first
+o365-cli teams list                        # joined teams: id, name, description
+o365-cli teams channels TEAM_ID            # id, name, description, membershipType
+```
+
+System events in a chat (members added, calls) count towards `--limit` but are left out.
+
+Reading team channels needs `ChannelMessage.Read.All`, which only a tenant admin can
+consent to, so it has its own login and cache (`~/.o365-cli/channel-messages/`):
+`o365-cli auth login --channel-messages`, signed in as a tenant admin who accepts on behalf
+of the organisation. `auth login --teams` keeps working without it; `auth status` shows both.
+
+```bash
+o365-cli teams channel-messages TEAM_ID CHANNEL_ID --limit 20 # sender, time, plain text, attachments, replies; most recently active thread first
+```
+
+`teams send` posts a plain-text message as the signed-in user (no HTML, no attachments) and
+prints the `id` and `webUrl` of the new message. `--to EMAIL` sends a direct message to a user
+of the tenant: it reuses the 1:1 chat with that user or creates it; an unknown address fails
+before anything is sent.
+
+```bash
+o365-cli teams send --chat CHAT_ID --text "On my way"
+o365-cli teams send --team TEAM_ID --channel CHANNEL_ID --text "Build is green"
+o365-cli teams send --to colleague@example.com --text "Do you have a minute?"
+```
+
+A sent message cannot be recalled unseen. Agents send only after the owner saw and approved
+the recipient and the exact text, as for mail; the CLI does not enforce this.
+
 ### Multi-Account Behavior
 
 **Read commands** (list, search, today) automatically show data from **all logged-in accounts**. Use `--account` to filter to a specific account:
@@ -246,6 +292,8 @@ allow:
 | `calendar.write` | Create and update events |
 | `calendar.delete` | Delete events |
 | `calendar.respond` | Accept/decline/tentative |
+| `teams.read` | List Teams chats, chat messages, teams, channels and channel messages |
+| `teams.send` | Post plain-text messages to Teams chats and channels |
 | `folders.read` | List folders |
 | `folders.manage` | Create/delete folders |
 | `rules.read` | List inbox rules |

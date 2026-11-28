@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/public"
@@ -36,6 +37,19 @@ var Scopes = []string{
 // CategoryListScope lets the workflow add names to the mailbox's Outlook category list.
 // Only `auth login --categories` consents to it; every other command keeps requesting only Scopes.
 const CategoryListScope = "https://graph.microsoft.com/MailboxSettings.ReadWrite"
+
+// TeamsScopes let agents read and post Teams chats and list teams and channels.
+// Only `auth login --teams` consents to them, separately from Scopes, so a tenant that refuses Teams cannot break mail.
+var TeamsScopes = []string{
+	"https://graph.microsoft.com/Chat.ReadWrite",
+	"https://graph.microsoft.com/ChannelMessage.Send",
+	"https://graph.microsoft.com/Team.ReadBasic.All",
+	"https://graph.microsoft.com/Channel.ReadBasic.All",
+}
+
+// ChannelMessageReadScope lets agents read team channel messages; only a tenant admin can consent to it.
+// Only `auth login --channel-messages` asks for it, so `auth login --teams` keeps working without admin consent.
+const ChannelMessageReadScope = "https://graph.microsoft.com/ChannelMessage.Read.All"
 
 // OAuthClient manages OAuth2 authentication
 type OAuthClient struct {
@@ -68,6 +82,45 @@ func (c *OAuthClient) ConsentToCategoryList() {
 // NewCategoryListOAuthClient requests only the category list scope, which `auth login --categories` consents to.
 func NewCategoryListOAuthClient(clientID, cacheDir string) (*OAuthClient, error) {
 	return newOAuthClient(clientID, cacheDir, []string{CategoryListScope}, nil)
+}
+
+// NewTeamsOAuthClient requests only TeamsScopes, which `auth login --teams` consents to.
+// Its tokens live in TeamsCacheDir, so a Teams-only account never shows up in the mail account selection.
+func NewTeamsOAuthClient(clientID, cacheDir string) (*OAuthClient, error) {
+	dir, err := TeamsCacheDir(cacheDir)
+	if err != nil {
+		return nil, err
+	}
+	return newOAuthClient(clientID, dir, TeamsScopes, nil)
+}
+
+// NewChannelMessageOAuthClient requests only ChannelMessageReadScope, which `auth login --channel-messages` consents to.
+// Its tokens live in ChannelMessageCacheDir, apart from the mail and Teams logins.
+func NewChannelMessageOAuthClient(clientID, cacheDir string) (*OAuthClient, error) {
+	dir, err := ChannelMessageCacheDir(cacheDir)
+	if err != nil {
+		return nil, err
+	}
+	return newOAuthClient(clientID, dir, []string{ChannelMessageReadScope}, nil)
+}
+
+// TeamsCacheDir is the separate token cache directory of the Teams login below cacheDir.
+func TeamsCacheDir(cacheDir string) (string, error) { return subCacheDir(cacheDir, "teams") }
+
+// ChannelMessageCacheDir is the separate token cache directory of the channel message login below cacheDir.
+func ChannelMessageCacheDir(cacheDir string) (string, error) {
+	return subCacheDir(cacheDir, "channel-messages")
+}
+
+func subCacheDir(cacheDir, name string) (string, error) {
+	if cacheDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", errors.New("cannot resolve token cache directory")
+		}
+		cacheDir = filepath.Join(home, ".o365-cli")
+	}
+	return filepath.Join(cacheDir, name), nil
 }
 
 func NewReadOnlyOAuthClient(clientID, cacheDir string) (*OAuthClient, error) {

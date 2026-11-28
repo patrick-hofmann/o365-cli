@@ -1,0 +1,298 @@
+// Package teams reads Microsoft Teams chats, teams and channels and posts messages through Microsoft Graph.
+package teams
+
+import (
+	"encoding/json"
+	"fmt"
+	"html"
+	"net/url"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/patrick-hofmann/o365-cli/v2/internal/graph"
+)
+
+// Client wraps the generic Graph client with Teams operations.
+type Client struct {
+	*graph.Client
+}
+
+// NewClient creates a Teams client for a token from the Teams login.
+func NewClient(accessToken string) *Client {
+	return &Client{Client: graph.NewClient(accessToken)}
+}
+
+type Chat struct {
+	ID              string     `json:"id"`
+	Topic           string     `json:"topic"`
+	ChatType        string     `json:"chatType"`
+	Members         []string   `json:"members"`
+	LastMessageTime *time.Time `json:"lastMessageTime"`
+}
+
+type Message struct {
+	ID     string    `json:"id"`
+	Sender string    `json:"sender"`
+	Time   time.Time `json:"time"`
+	Text   string    `json:"text"`
+	// Attachments names files and cards; a message with only an attachment has an empty text.
+	Attachments []string `json:"attachments"`
+}
+
+// ChannelMessage is a top-level channel post; Replies counts its thread replies.
+type ChannelMessage struct {
+	Message
+	Replies int `json:"replies"`
+}
+
+type Team struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type Channel struct {
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Description    string `json:"description"`
+	MembershipType string `json:"membershipType"`
+}
+
+type identity struct {
+	DisplayName string `json:"displayName"`
+}
+
+// list follows @odata.nextLink pages and decodes up to limit items (0 = all) of path into out.
+func list[T any](c *Client, path string, limit int) ([]T, error) {
+	var items []T
+	next := graph.GraphAPIBaseURL + path
+	for next != "" {
+		resp, err := c.DoRequest("GET", next, nil)
+		if err != nil {
+			return nil, err
+		}
+		var page struct {
+			Value    []T    `json:"value"`
+			NextLink string `json:"@odata.nextLink"`
+		}
+		if err := json.Unmarshal(resp, &page); err != nil {
+			return nil, fmt.Errorf("failed to parse response: %w", err)
+		}
+		for _, item := range page.Value {
+			items = append(items, item)
+			if limit > 0 && len(items) >= limit {
+				return items, nil
+			}
+		}
+		next = page.NextLink
+	}
+	return items, nil
+}
+
+// pageSize keeps one Graph page within the limit; chat endpoints accept at most 50.
+func pageSize(limit int) int {
+	if limit <= 0 || limit > 50 {
+		return 50
+	}
+	return limit
+}
+
+// ListChats returns the user's chats, most recent message first.
+func (c *Client) ListChats(limit int) ([]Chat, error) {
+	raw, err := list[struct {
+		ID                  string `json:"id"`
+		Topic               string `json:"topic"`
+		ChatType            string `json:"chatType"`
+		Members             []identity
+		LastMessagePreview  *struct{ CreatedDateTime time.Time } `json:"lastMessagePreview"`
+		LastUpdatedDateTime *time.Time                           `json:"lastUpdatedDateTime"`
+	}](c, fmt.Sprintf("/me/chats?$expand=members,lastMessagePreview&$orderby=lastMessagePreview/createdDateTime%%20desc&$top=%d", pageSize(limit)), limit)
+	if err != nil {
+		return nil, err
+	}
+	chats := make([]Chat, 0, len(raw))
+	for _, r := range raw {
+		chat := Chat{ID: r.ID, Topic: r.Topic, ChatType: r.ChatType, Members: []string{}, LastMessageTime: r.LastUpdatedDateTime}
+		if r.LastMessagePreview != nil {
+			chat.LastMessageTime = &r.LastMessagePreview.CreatedDateTime
+		}
+		for _, m := range r.Members {
+			chat.Members = append(chat.Members, m.DisplayName)
+		}
+		chats = append(chats, chat)
+	}
+	return chats, nil
+}
+
+type rawMessage struct {
+	ID              string    `json:"id"`
+	MessageType     string    `json:"messageType"`
+	CreatedDateTime time.Time `json:"createdDateTime"`
+	From            *struct {
+		User        *identity `json:"user"`
+		Application *identity `json:"application"`
+	} `json:"from"`
+	Body struct {
+		ContentType string `json:"contentType"`
+		Content     string `json:"content"`
+	} `json:"body"`
+	Attachments []struct {
+		Name string `json:"name"`
+	} `json:"attachments"`
+}
+
+func (r rawMessage) message() Message {
+	msg := Message{ID: r.ID, Time: r.CreatedDateTime, Text: r.Body.Content, Attachments: []string{}}
+	for _, a := range r.Attachments {
+		msg.Attachments = append(msg.Attachments, a.Name)
+	}
+	if r.Body.ContentType == "html" {
+		msg.Text = HTMLToText(r.Body.Content)
+	}
+	if r.From != nil && r.From.User != nil {
+		msg.Sender = r.From.User.DisplayName
+	} else if r.From != nil && r.From.Application != nil {
+		msg.Sender = r.From.Application.DisplayName
+	}
+	return msg
+}
+
+// ListMessages returns the newest limit messages of a chat, newest first.
+// System events (members added, calls) count towards limit but are left out.
+func (c *Client) ListMessages(chatID string, limit int) ([]Message, error) {
+	raw, err := list[rawMessage](c, fmt.Sprintf("/me/chats/%s/messages?$orderby=createdDateTime%%20desc&$top=%d", url.PathEscape(chatID), pageSize(limit)), limit)
+	if err != nil {
+		return nil, err
+	}
+	msgs := []Message{}
+	for _, r := range raw {
+		if r.MessageType == "message" {
+			msgs = append(msgs, r.message())
+		}
+	}
+	return msgs, nil
+}
+
+// ListChannelMessages returns the limit most recently active top-level posts of a channel with their reply count.
+// Graph orders them by the last change of the whole thread (a new reply moves an old post up) and supports no $orderby.
+// System events count towards limit but are left out, as in ListMessages.
+// ponytail: Replies counts the replies Graph expands with a post (up to 1000); fetch /replies if threads get longer.
+func (c *Client) ListChannelMessages(teamID, channelID string, limit int) ([]ChannelMessage, error) {
+	raw, err := list[struct {
+		rawMessage
+		Replies []struct{} `json:"replies"`
+	}](c, fmt.Sprintf("/teams/%s/channels/%s/messages?$expand=replies&$top=%d", url.PathEscape(teamID), url.PathEscape(channelID), pageSize(limit)), limit)
+	if err != nil {
+		return nil, err
+	}
+	msgs := []ChannelMessage{}
+	for _, r := range raw {
+		if r.MessageType == "message" {
+			msgs = append(msgs, ChannelMessage{Message: r.message(), Replies: len(r.Replies)})
+		}
+	}
+	return msgs, nil
+}
+
+// ListTeams returns the teams the user has joined.
+func (c *Client) ListTeams() ([]Team, error) {
+	raw, err := list[struct {
+		ID          string `json:"id"`
+		DisplayName string `json:"displayName"`
+		Description string `json:"description"`
+	}](c, "/me/joinedTeams", 0)
+	if err != nil {
+		return nil, err
+	}
+	teams := make([]Team, 0, len(raw))
+	for _, r := range raw {
+		teams = append(teams, Team{ID: r.ID, Name: r.DisplayName, Description: r.Description})
+	}
+	return teams, nil
+}
+
+// ListChannels returns the channels of a team.
+func (c *Client) ListChannels(teamID string) ([]Channel, error) {
+	raw, err := list[struct {
+		ID             string `json:"id"`
+		DisplayName    string `json:"displayName"`
+		Description    string `json:"description"`
+		MembershipType string `json:"membershipType"`
+	}](c, fmt.Sprintf("/teams/%s/channels", url.PathEscape(teamID)), 0)
+	if err != nil {
+		return nil, err
+	}
+	channels := make([]Channel, 0, len(raw))
+	for _, r := range raw {
+		channels = append(channels, Channel{ID: r.ID, Name: r.DisplayName, Description: r.Description, MembershipType: r.MembershipType})
+	}
+	return channels, nil
+}
+
+var (
+	blockTag = regexp.MustCompile(`(?i)<br\s*/?>|</(p|div|li|tr|h[1-6])>`)
+	anyTag   = regexp.MustCompile(`<[^>]*>`)
+	blanks   = regexp.MustCompile(`\n{3,}`)
+)
+
+// HTMLToText turns a Teams HTML message body into plain text.
+// ponytail: regexp, not an HTML parser; good enough for Teams' simple markup, swap for x/net/html if bodies get richer.
+func HTMLToText(s string) string {
+	s = blockTag.ReplaceAllString(s, "\n")
+	s = html.UnescapeString(anyTag.ReplaceAllString(s, ""))
+	s = strings.ReplaceAll(s, " ", " ")
+	return strings.TrimSpace(blanks.ReplaceAllString(s, "\n\n"))
+}
+
+// Sent is the message SendMessage posted.
+type Sent struct {
+	ID     string `json:"id"`
+	WebURL string `json:"webUrl"`
+}
+
+// SendMessage posts text as plain text to a chat (chatID) or a channel (teamID and channelID).
+func (c *Client) SendMessage(chatID, teamID, channelID, text string) (*Sent, error) {
+	path := fmt.Sprintf("/chats/%s/messages", url.PathEscape(chatID))
+	if chatID == "" {
+		path = fmt.Sprintf("/teams/%s/channels/%s/messages", url.PathEscape(teamID), url.PathEscape(channelID))
+	}
+	body, err := json.Marshal(map[string]any{"body": map[string]string{"contentType": "text", "content": text}})
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.DoRequest("POST", graph.GraphAPIBaseURL+path, body)
+	if err != nil {
+		return nil, err
+	}
+	var sent Sent
+	if err := json.Unmarshal(resp, &sent); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+	return &sent, nil
+}
+
+// OneOnOneChat returns the id of the 1:1 chat between the signed-in user (me) and the user to, both by email or UPN.
+// Graph returns the existing 1:1 chat when there is one and creates it otherwise.
+func (c *Client) OneOnOneChat(me, to string) (string, error) {
+	member := func(email string) map[string]any {
+		return map[string]any{
+			"@odata.type":     "#microsoft.graph.aadUserConversationMember",
+			"roles":           []string{"owner"},
+			"user@odata.bind": fmt.Sprintf("%s/users('%s')", graph.GraphAPIBaseURL, url.PathEscape(email)),
+		}
+	}
+	body, err := json.Marshal(map[string]any{"chatType": "oneOnOne", "members": []any{member(me), member(to)}})
+	if err != nil {
+		return "", err
+	}
+	resp, err := c.DoRequest("POST", graph.GraphAPIBaseURL+"/chats", body)
+	if err != nil {
+		return "", fmt.Errorf("cannot open a 1:1 chat with %s (unknown user or outside the tenant?); nothing was sent: %w", to, err)
+	}
+	var chat struct{ ID string }
+	if err := json.Unmarshal(resp, &chat); err != nil || chat.ID == "" {
+		return "", fmt.Errorf("no chat id in the response for %s; nothing was sent", to)
+	}
+	return chat.ID, nil
+}
