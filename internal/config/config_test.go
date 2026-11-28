@@ -64,3 +64,15 @@ func TestSetValueDebug(t *testing.T) {
 		t.Fatal("non-boolean debug value must be an error")
 	}
 }
+
+func TestFilePathFollowsConfigFlag(t *testing.T) {
+	defer func() { File = "" }()
+	File = ""
+	if got, want := FilePath(), filepath.Join(GetConfigDir(), "config.yaml"); got != want {
+		t.Fatalf("FilePath() = %q, want %q", got, want)
+	}
+	File = "/tmp/alt.yaml"
+	if got := FilePath(); got != File {
+		t.Fatalf("FilePath() = %q, want %q", got, File)
+	}
+}

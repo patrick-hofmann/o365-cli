@@ -70,7 +70,7 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Cache Dir:       %s\n", cfg.CacheDir)
 	fmt.Printf("Debug:           %v\n", cfg.Debug)
 
-	fmt.Printf("\nConfig file: %s/config.yaml\n", config.GetConfigDir())
+	fmt.Printf("\nConfig file: %s\n", config.FilePath())
 
 	return nil
 }
@@ -100,6 +100,11 @@ func runConfigGet(cmd *cobra.Command, args []string) error {
 }
 
 func runConfigPath(cmd *cobra.Command, args []string) {
+	// Without --config, keep printing the directory: accounts.yaml lives there too.
+	if config.File != "" {
+		fmt.Println(config.File)
+		return
+	}
 	fmt.Println(config.GetConfigDir())
 }
 
