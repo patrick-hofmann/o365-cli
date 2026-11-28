@@ -13,7 +13,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/yourname/o365-cli/internal/graph"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/graph"
 )
 
 const workflowFields = "id,changeKey,internetMessageId,conversationId,parentFolderId,subject,body,receivedDateTime,sentDateTime,from,sender,replyTo,toRecipients,ccRecipients,hasAttachments,flag,importance,internetMessageHeaders,categories,isRead,isDraft,webLink"

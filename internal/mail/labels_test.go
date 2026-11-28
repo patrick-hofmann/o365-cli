@@ -12,7 +12,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/yourname/o365-cli/internal/graph"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/graph"
 )
 
 const labelFixture = `{"id":"immutable-before","changeKey":"v1","parentFolderId":"inbox-id","isRead":false,"isDraft":false,"categories":["Unrelated"],"conversationId":"conversation-1","from":{"emailAddress":{"address":"sender@example.invalid"}},"subject":"Subject","body":{"content":"Complete body"}}`

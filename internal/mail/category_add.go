@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/yourname/o365-cli/internal/graph"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/graph"
 )
 
 // AddCategory uses the current category set as its only idempotency state.

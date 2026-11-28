@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/yourname/o365-cli/internal/graph"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/graph"
 )
 
 func TestSaveMessagePDFsStoresPDFsOnce(t *testing.T) {

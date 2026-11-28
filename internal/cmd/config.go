@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/yourname/o365-cli/internal/config"
-	"github.com/yourname/o365-cli/internal/profile"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/config"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/profile"
 )
 
 var configCmd = &cobra.Command{
