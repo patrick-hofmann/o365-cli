@@ -1,7 +1,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -19,6 +21,9 @@ const (
 
 // File is the config file chosen with --config; empty means ~/.o365-cli/config.yaml.
 var File string
+
+// AllowMissingFile lets Load treat a missing --config file as empty, so `config set` can create it.
+var AllowMissingFile bool
 
 // MigrateIfNeeded migrates the config directory from ~/.o365-mail-cli/ to ~/.o365-cli/
 // if the new directory does not exist but the legacy one does.
@@ -114,7 +119,8 @@ func Load() (*Config, error) {
 
 	// Read config file (if exists)
 	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+		_, notFound := err.(viper.ConfigFileNotFoundError)
+		if !notFound && !(AllowMissingFile && errors.Is(err, fs.ErrNotExist)) {
 			return nil, fmt.Errorf("error reading config file: %w", err)
 		}
 		// No config file is OK
