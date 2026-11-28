@@ -1,9 +1,12 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/spf13/viper"
@@ -16,6 +19,12 @@ const (
 	ConfigFileName      = "config"
 	AccountsFileName    = "accounts.yaml"
 )
+
+// File is the config file chosen with --config; empty means ~/.o365-cli/config.yaml.
+var File string
+
+// AllowMissingFile lets Load treat a missing --config file as empty, so `config set` can create it.
+var AllowMissingFile bool
 
 // MigrateIfNeeded migrates the config directory from ~/.o365-mail-cli/ to ~/.o365-cli/
 // if the new directory does not exist but the legacy one does.
@@ -89,10 +98,14 @@ func Load() (*Config, error) {
 	configDir := filepath.Join(home, ConfigDirName)
 
 	// Configure viper
-	viper.SetConfigName(ConfigFileName)
 	viper.SetConfigType("yaml")
-	viper.AddConfigPath(configDir)
-	viper.AddConfigPath(".")
+	if File != "" {
+		viper.SetConfigFile(File)
+	} else {
+		viper.SetConfigName(ConfigFileName)
+		viper.AddConfigPath(configDir)
+		viper.AddConfigPath(".")
+	}
 
 	// Environment variables
 	viper.SetEnvPrefix("O365")
@@ -107,7 +120,8 @@ func Load() (*Config, error) {
 
 	// Read config file (if exists)
 	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+		_, notFound := err.(viper.ConfigFileNotFoundError)
+		if !notFound && !(AllowMissingFile && errors.Is(err, fs.ErrNotExist)) {
 			return nil, fmt.Errorf("error reading config file: %w", err)
 		}
 		// No config file is OK
@@ -143,12 +157,19 @@ func Save(cfg *Config) error {
 	viper.Set("lock_dir", cfg.LockDir)
 
 	// Save
-	configPath := filepath.Join(configDir, ConfigFileName+".yaml")
-	if err := viper.WriteConfigAs(configPath); err != nil {
+	if err := viper.WriteConfigAs(FilePath()); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
 	return nil
+}
+
+// FilePath returns the config file in use: --config if set, else ~/.o365-cli/config.yaml.
+func FilePath() string {
+	if File != "" {
+		return File
+	}
+	return filepath.Join(GetConfigDir(), ConfigFileName+".yaml")
 }
 
 // GetConfigDir returns the configuration directory
@@ -171,6 +192,12 @@ func SetValue(key, value string) error {
 		cfg.CurrentAccount = value
 	case "lock_dir":
 		cfg.LockDir = value
+	case "debug":
+		b, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("debug must be true or false, got %q", value)
+		}
+		cfg.Debug = b
 	default:
 		return fmt.Errorf("unknown config key: %s", key)
 	}
@@ -194,6 +221,8 @@ func GetValue(key string) (string, error) {
 		return cfg.CacheDir, nil
 	case "lock_dir":
 		return cfg.LockDir, nil
+	case "debug":
+		return strconv.FormatBool(cfg.Debug), nil
 	default:
 		return "", fmt.Errorf("unknown config key: %s", key)
 	}

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yourname/o365-cli/internal/graph"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/graph"
 )
 
 const archiveFixture = `{"id":"immutable-before","changeKey":"v1","parentFolderId":"inbox-id","from":{"emailAddress":{"address":"Sender@Example.invalid"}},"subject":"Reviewed message","body":{"content":"complete body"},"receivedDateTime":"2026-10-15T12:00:00Z","hasAttachments":false}`

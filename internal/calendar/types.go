@@ -3,7 +3,7 @@ package calendar
 import (
 	"time"
 
-	"github.com/yourname/o365-cli/internal/graph"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/graph"
 )
 
 // Event represents a calendar event in the application layer.

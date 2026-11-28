@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/yourname/o365-cli/internal/auth"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/auth"
 	"net/url"
 	"strings"
 	"time"
 
-	"github.com/yourname/o365-cli/internal/graph"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/graph"
 )
 
 const messageFields = "id,changeKey,internetMessageId,conversationId,parentFolderId,subject,body,bodyPreview,receivedDateTime,sentDateTime,lastModifiedDateTime,isRead,from,toRecipients,ccRecipients,hasAttachments"

@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/yourname/o365-cli/internal/mail"
-	"github.com/yourname/o365-cli/internal/profile"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/mail"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/profile"
 )
 
 var mailCmd = &cobra.Command{

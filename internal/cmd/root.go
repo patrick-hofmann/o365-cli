@@ -7,9 +7,9 @@ import (
 	"sync"
 
 	"github.com/spf13/cobra"
-	"github.com/yourname/o365-cli/internal/auth"
-	"github.com/yourname/o365-cli/internal/config"
-	"github.com/yourname/o365-cli/internal/profile"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/auth"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/config"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/profile"
 )
 
 var (
@@ -53,6 +53,8 @@ Examples:
 
 		// Load configuration
 		var err error
+		config.File = cfgFile
+		config.AllowMissingFile = cmd == configSetCmd
 		cfg, err = config.Load()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)

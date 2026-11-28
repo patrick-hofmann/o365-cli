@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/yourname/o365-cli/internal/graph"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/graph"
 )
 
 // ArchiveLabelled moves one Inbox message to Archive only while it carries the required label and its assessed content is unchanged.

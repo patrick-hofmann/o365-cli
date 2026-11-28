@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/yourname/o365-cli/internal/config"
-	"github.com/yourname/o365-cli/internal/profile"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/config"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/profile"
 )
 
 var configCmd = &cobra.Command{
@@ -29,12 +29,13 @@ var configSetCmd = &cobra.Command{
 Available keys:
   client_id       - Azure App Client ID
   current_account - Active account (email address)
-  imap_server     - IMAP server (default: outlook.office365.com)
-  smtp_server     - SMTP server (default: smtp.office365.com)
+  lock_dir        - Directory for cross-process locks (absolute path)
+  debug           - Debug output (true or false)
 
 Examples:
   o365-cli config set client_id "your-client-id"
-  o365-cli config set current_account "user@example.com"`,
+  o365-cli config set current_account "user@example.com"
+  o365-cli config set debug true`,
 	Annotations: map[string]string{profile.AnnotationKey: "config.write"},
 	Args:        cobra.ExactArgs(2),
 	RunE:        runConfigSet,
@@ -69,7 +70,7 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Cache Dir:       %s\n", cfg.CacheDir)
 	fmt.Printf("Debug:           %v\n", cfg.Debug)
 
-	fmt.Printf("\nConfig file: %s/config.yaml\n", config.GetConfigDir())
+	fmt.Printf("\nConfig file: %s\n", config.FilePath())
 
 	return nil
 }
@@ -99,6 +100,11 @@ func runConfigGet(cmd *cobra.Command, args []string) error {
 }
 
 func runConfigPath(cmd *cobra.Command, args []string) {
+	// Without --config, keep printing the directory: accounts.yaml lives there too.
+	if config.File != "" {
+		fmt.Println(config.File)
+		return
+	}
 	fmt.Println(config.GetConfigDir())
 }
 

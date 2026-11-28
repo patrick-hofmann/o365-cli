@@ -6,9 +6,9 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/yourname/o365-cli/internal/auth"
-	"github.com/yourname/o365-cli/internal/profile"
-	"github.com/yourname/o365-cli/internal/teams"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/auth"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/profile"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/teams"
 )
 
 var teamsCmd = &cobra.Command{
