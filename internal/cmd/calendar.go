@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/yourname/o365-cli/internal/calendar"
-	"github.com/yourname/o365-cli/internal/profile"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/calendar"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/profile"
 )
 
 var calendarCmd = &cobra.Command{

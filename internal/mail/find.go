@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/yourname/o365-cli/internal/graph"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/graph"
 )
 
 // FindRequest selects Inbox messages on the server by exact category names, so a Pod needs one call instead of paging the Inbox.

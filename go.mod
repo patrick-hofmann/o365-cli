@@ -1,4 +1,4 @@
-module github.com/yourname/o365-cli
+module github.com/patrick-hofmann/o365-cli/v2
 
 go 1.24.1
 

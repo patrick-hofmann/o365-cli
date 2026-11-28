@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/yourname/o365-cli/internal/auth"
-	podmail "github.com/yourname/o365-cli/internal/mail"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/auth"
+	podmail "github.com/patrick-hofmann/o365-cli/v2/internal/mail"
 )
 
 func newPodsCommand() *cobra.Command {

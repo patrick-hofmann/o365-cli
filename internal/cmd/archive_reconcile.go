@@ -3,7 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"github.com/spf13/cobra"
-	"github.com/yourname/o365-cli/internal/mail"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/mail"
 )
 
 func newArchiveInspectCommand() *cobra.Command {

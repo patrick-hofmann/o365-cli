@@ -7,7 +7,7 @@ BUILD_DIR=dist
 MAIN_PATH=./cmd/o365-cli
 
 # Build flags
-LDFLAGS=-ldflags "-s -w -X github.com/yourname/o365-cli/internal/cmd.Version=$(VERSION)"
+LDFLAGS=-ldflags "-s -w -X github.com/patrick-hofmann/o365-cli/v2/internal/cmd.Version=$(VERSION)"
 
 # Alle Plattformen
 PLATFORMS=darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64

@@ -12,7 +12,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/yourname/o365-cli/internal/graph"
+	"github.com/patrick-hofmann/o365-cli/v2/internal/graph"
 )
 
 // LabelGate is supplied by the caller's policy, never by the message or a model.

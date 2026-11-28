@@ -47,7 +47,7 @@ brew install patrick-hofmann/tap/o365-cli
 ### Go Install
 
 ```bash
-go install github.com/patrick-hofmann/o365-cli/cmd/o365-cli@latest
+go install github.com/patrick-hofmann/o365-cli/v2/cmd/o365-cli@latest
 ```
 
 ### Download Binary
