@@ -17,6 +17,9 @@ const (
 	AccountsFileName    = "accounts.yaml"
 )
 
+// File is the config file chosen with --config; empty means ~/.o365-cli/config.yaml.
+var File string
+
 // MigrateIfNeeded migrates the config directory from ~/.o365-mail-cli/ to ~/.o365-cli/
 // if the new directory does not exist but the legacy one does.
 func MigrateIfNeeded() error {
@@ -89,10 +92,14 @@ func Load() (*Config, error) {
 	configDir := filepath.Join(home, ConfigDirName)
 
 	// Configure viper
-	viper.SetConfigName(ConfigFileName)
 	viper.SetConfigType("yaml")
-	viper.AddConfigPath(configDir)
-	viper.AddConfigPath(".")
+	if File != "" {
+		viper.SetConfigFile(File)
+	} else {
+		viper.SetConfigName(ConfigFileName)
+		viper.AddConfigPath(configDir)
+		viper.AddConfigPath(".")
+	}
 
 	// Environment variables
 	viper.SetEnvPrefix("O365")
@@ -144,6 +151,9 @@ func Save(cfg *Config) error {
 
 	// Save
 	configPath := filepath.Join(configDir, ConfigFileName+".yaml")
+	if File != "" {
+		configPath = File
+	}
 	if err := viper.WriteConfigAs(configPath); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}

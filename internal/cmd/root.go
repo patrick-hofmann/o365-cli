@@ -53,6 +53,7 @@ Examples:
 
 		// Load configuration
 		var err error
+		config.File = cfgFile
 		cfg, err = config.Load()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
