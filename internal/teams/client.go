@@ -271,3 +271,28 @@ func (c *Client) SendMessage(chatID, teamID, channelID, text string) (*Sent, err
 	}
 	return &sent, nil
 }
+
+// OneOnOneChat returns the id of the 1:1 chat between the signed-in user (me) and the user to, both by email or UPN.
+// Graph returns the existing 1:1 chat when there is one and creates it otherwise.
+func (c *Client) OneOnOneChat(me, to string) (string, error) {
+	member := func(email string) map[string]any {
+		return map[string]any{
+			"@odata.type":     "#microsoft.graph.aadUserConversationMember",
+			"roles":           []string{"owner"},
+			"user@odata.bind": fmt.Sprintf("%s/users('%s')", graph.GraphAPIBaseURL, url.PathEscape(email)),
+		}
+	}
+	body, err := json.Marshal(map[string]any{"chatType": "oneOnOne", "members": []any{member(me), member(to)}})
+	if err != nil {
+		return "", err
+	}
+	resp, err := c.DoRequest("POST", graph.GraphAPIBaseURL+"/chats", body)
+	if err != nil {
+		return "", fmt.Errorf("cannot open a 1:1 chat with %s (unknown user or outside the tenant?); nothing was sent: %w", to, err)
+	}
+	var chat struct{ ID string }
+	if err := json.Unmarshal(resp, &chat); err != nil || chat.ID == "" {
+		return "", fmt.Errorf("no chat id in the response for %s; nothing was sent", to)
+	}
+	return chat.ID, nil
+}

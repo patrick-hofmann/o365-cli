@@ -132,11 +132,14 @@ o365-cli teams channel-messages TEAM_ID CHANNEL_ID --limit 20 # sender, time, pl
 ```
 
 `teams send` posts a plain-text message as the signed-in user (no HTML, no attachments) and
-prints the `id` and `webUrl` of the new message:
+prints the `id` and `webUrl` of the new message. `--to EMAIL` sends a direct message to a user
+of the tenant: it reuses the 1:1 chat with that user or creates it; an unknown address fails
+before anything is sent.
 
 ```bash
 o365-cli teams send --chat CHAT_ID --text "On my way"
 o365-cli teams send --team TEAM_ID --channel CHANNEL_ID --text "Build is green"
+o365-cli teams send --to colleague@example.com --text "Do you have a minute?"
 ```
 
 A sent message cannot be recalled unseen. Agents send only after the owner saw and approved
